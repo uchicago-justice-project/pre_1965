@@ -13,6 +13,14 @@ landsales <- read_sf("data/intermediate/landsales/sections_with_checkerboard.geo
 
 redlines <- read_sf("data/intermediate/redlining/mappinginequality.json")
 
+for (i in c("1", "2", "3", "4_1", "4_2", "4_3", "5_1", "5_2", "5_3")){
+  df <- read_sf(glue("data/raw/black_residency/part{i}"))
+  
+  st_transform(df, st_crs(hex))
+  assign(glue("black_res_{i}"), df)
+  
+}
+
 # Standardize CRS -----------------------
 cha_projects <- st_transform(cha_projects, st_crs(hex))
 riots <- st_transform(riots, st_crs(hex))
