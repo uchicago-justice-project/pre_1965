@@ -33,8 +33,36 @@ hexhomshp_merged <- st_join(hexhomshp_merged, riots, join = st_contains, left = 
 
 #Landsales 
 
-hexhomshp_merged_land <- st_join(hexhomshp_merged, landsales, join = st_intersection, left = TRUE)
+hexhomshp_merged_land <- st_join(hexhomshp_merged, landsales, join = st_intersects, left = TRUE)
 
+
+#Plots ---------
+
+ggplot(data = landsales %>% filter(in_checkerboard == TRUE) %>% head(30)) +
+  geom_sf(aes(fill = in_checkerboard)) +
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+    ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+  ) 
+
+colors <- setNames(unique(redlines$fill), unique(redlines$category))
+ggplot(data = redlines %>% filter(city == "Chicago")) +
+  geom_sf(aes(fill = category)) +
+  scale_fill_manual(values = colors)+
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+    ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+  ) 
+
+ggplot(data = hex) +
+  geom_sf() +
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+    ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+  ) 
 
 
 # TESTING --------------
@@ -49,4 +77,4 @@ test2 <- test %>%
 test <- hexhomshp_joined %>% 
   filter(!is.na(yr_built_start)) %>% 
   group_by(name, yr_built_start) %>% 
-  summarise(n = n_distinct(geometry))
+  summarise(n = n_distinct(geometry)) 
