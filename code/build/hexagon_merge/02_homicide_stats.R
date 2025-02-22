@@ -20,9 +20,11 @@ hexhomshp_10 <- df %>%
                                                           max_10 = ~max(.), 
                                                           median_10 = ~median(.)))) %>% 
   ungroup() %>% 
-  dplyr::select( -hom_ct,  -hom_rt, -bldg_ct, -year) 
+  dplyr::select( -hom_ct,  -hom_rt, -bldg_ct) 
 
-df_out <- left_join(df, hexhomshp_10)
+hexhomshp_10 %>% filter(GRID_ID == "AK-22" & year_10 == 1945) %>% View()
+
+df_out <- left_join(df, hexhomshp_10, by = c("GRID_ID", "year"))
 
 sf_object <- st_as_sf(df_out, wkt = "geometry") 
 
