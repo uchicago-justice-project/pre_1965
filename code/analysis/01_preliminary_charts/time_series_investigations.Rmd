@@ -1,6 +1,8 @@
 ---
 title: "time_series_investigations"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r}
@@ -12,7 +14,7 @@ df <- st_read("data/mst/hex_merged_w_stats.gpkg")
 
 ```
 
-#General Plot
+# General Plot
 ```{r}
 
 years <- seq(1885, 1965, 10)
@@ -22,36 +24,48 @@ year_select <- years[1]
 for (year_select in years) {
   
   g <- ggplot(data = df %>% filter(year == year_select)) +
-    geom_sf(aes(fill = hom_ct_sum)) +
-    facet_wrap(vars(bk_res_1))  + 
+    geom_sf(aes(fill = hom_ct_sum_10)) +
     theme_minimal() + 
     labs(title = year_select)
   
   
   plot(g)
-  
-}
- 
-```
-
-#General Plot
-```{r}
-
-years <- seq(1885, 1965, 10)
-
-year_select <- years[1]
-
-for (year_select in years) {
   
   g <- ggplot(data = df %>% filter(year == year_select)) +
-    geom_sf(aes(fill = hom_rt_mean, color = bk_res_1)) +
+    geom_sf(aes(fill = hom_rt_mean_10)) +
     theme_minimal() + 
     labs(title = year_select)
   
   
   plot(g)
   
+    g <- ggplot(data = df %>% filter(year == year_select)) +
+    geom_sf(aes(fill = hom_pbldg_mean_10)) +
+    theme_minimal() + 
+    labs(title = year_select)
+  
+  
+  plot(g)
+  
+  
 }
  
 ```
 
+
+## Investigate 1950
+
+```{r}
+
+df_1950 <- df %>% filter(year == 1950)
+df_1950_bk_1 <- df_1950 %>% filter(bk_res_1 > 0)
+  
+g <- ggplot(data = df_1950) +
+  geom_sf(aes(fill = hom_rt_mean_10)) +
+  theme_minimal() + 
+  labs(title = year_select)
+  
+  
+  plot(g)
+
+```
