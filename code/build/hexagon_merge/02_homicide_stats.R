@@ -10,19 +10,18 @@ df <- st_read("data/mst/hex_merged.gpkg")
 
 hexhomshp_10 <- df %>% 
   st_drop_geometry() %>% 
-  dplyr::select(GRID_ID, hom_ct, hom_rt, bldg_ct, year) %>% 
-  mutate(hom_pbldg = hom_ct / bldg_ct) %>% 
+  dplyr::select(GRID_ID, hom_ct, hom_rt, year) %>% 
   mutate(year_10 = ceiling((year+5)/10)*10-5) %>% 
   group_by(GRID_ID, year_10) %>% 
-  mutate(across(c(hom_ct, hom_rt, hom_pbldg), .fns = list(sum_10 = ~sum(.), 
+  mutate(across(c(hom_ct, hom_rt), .fns = list(sum_10 = ~sum(.), 
                                                           mean_10 = ~mean(.), 
                                                           min_10 = ~min(.), 
                                                           max_10 = ~max(.), 
                                                           median_10 = ~median(.)))) %>% 
   ungroup() %>% 
-  dplyr::select( -hom_ct,  -hom_rt, -bldg_ct) 
+  dplyr::select( -hom_ct,  -hom_rt) 
 
-hexhomshp_10 %>% filter(GRID_ID == "AK-22" & year_10 == 1945) %>% View()
+#hexhomshp_10 %>% filter(GRID_ID == "AK-22" & year_10 == 1945) %>% View()
 
 df_out <- left_join(df, hexhomshp_10, by = c("GRID_ID", "year"))
 

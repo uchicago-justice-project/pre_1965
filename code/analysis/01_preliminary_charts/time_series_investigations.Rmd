@@ -38,15 +38,7 @@ for (year_select in years) {
   
   
   plot(g)
-  
-    g <- ggplot(data = df %>% filter(year == year_select)) +
-    geom_sf(aes(fill = hom_pbldg_mean_10)) +
-    theme_minimal() + 
-    labs(title = year_select)
-  
-  
-  plot(g)
-  
+
   
 }
  
@@ -61,7 +53,7 @@ df_1950 <- df %>% filter(year == 1950)
 df_1950_bk_1 <- df_1950 %>% filter(bk_res_1 > 0)
   
 g <- ggplot(data = df_1950) +
-  geom_sf(aes(fill = hom_rt_mean_10)) +
+  geom_sf(aes(fill = hom_rt_mean_10, color = bk_res_1)) +
   theme_minimal() + 
   labs(title = year_select)
   
