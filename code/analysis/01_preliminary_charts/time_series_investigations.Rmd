@@ -1,5 +1,5 @@
 ---
-title: "time_series_investigations"
+title: "Time Series Investigations"
 output:
   html_document:
     df_print: paged
@@ -12,19 +12,20 @@ source("header.R")
 
 df <- st_read("data/mst/hex_merged_w_stats.gpkg")
 
+
 ```
 
 # General Plot
 ```{r}
 
-years <- seq(1885, 1965, 10)
+years <- seq(1885, 1965, 5)
 
 year_select <- years[1]
 
 for (year_select in years) {
   
   g <- ggplot(data = df %>% filter(year == year_select)) +
-    geom_sf(aes(fill = hom_ct_sum_10)) +
+    geom_sf(aes(fill = hom_ct_sum_5)) +
     theme_minimal() + 
     labs(title = year_select)
   
@@ -32,7 +33,7 @@ for (year_select in years) {
   plot(g)
   
   g <- ggplot(data = df %>% filter(year == year_select)) +
-    geom_sf(aes(fill = hom_rt_mean_10)) +
+    geom_sf(aes(fill = hom_rt_mean_5)) +
     theme_minimal() + 
     labs(title = year_select)
   
@@ -45,19 +46,122 @@ for (year_select in years) {
 ```
 
 
-## Investigate 1950
+## Investigate Riot Years 
+
+## Investigate Zoning 
+
+
+## Investigate Change in Black Residency to 1950
 
 ```{r}
 
-df_1950 <- df %>% filter(year == 1950)
-df_1950_bk_1 <- df_1950 %>% filter(bk_res_1 > 0)
+df <- df %>% 
+  mutate(bk_res_4 = bk_res_4_1 + bk_res_4_2 + bk_res_4_3, 
+         bk_res_5 = bk_res_5_1 + bk_res_5_2 + bk_res_5_3) %>% 
+  mutate(bk_res_4_cat = case_when(bk_res_4_3 > 0 ~ "Any Increase From 1% or More to More than 90%", 
+                                  bk_res_4_2 > 0 ~ "Significant Increase From 1% or More to Less than 90%", 
+                                  bk_res_4_1 > 0 ~ "Any Increase From Less Than 1%")) %>% 
+  mutate(bk_res_5_cat = case_when(bk_res_5_3 > 0 ~ "Any Increase From 1% or More to More than 90%", 
+                                  bk_res_5_2 > 0 ~ "Significant Increase From 1% or More to Less than 90%", 
+                                  bk_res_5_1 > 0 ~ "Any Increase From Less Than 1%"))
+
+df_45_50_change <- df %>% filter(year %in% c(1950, 1945)) %>% 
+  dplyr::select(-year_5) %>%
+  dplyr::select(GRID_ID, year, contains("sum_5"), contains("mean_5")) %>% 
+  arrange(year) %>% 
+  group_by(GRID_ID) %>% 
+  mutate(across(contains("_5"), .fns = list(change = ~(.-lag(.))))) %>% 
+  ungroup() %>%
+  filter(year == 1950)
+
+# test <- df %>% 
+#   st_drop_geometry()  %>% 
+#   filter(bk_res_4 > 0 | bk_res_5> 0) %>%
+#   dplyr::select(GRID_ID, contains("res_")) %>% 
+#   distinct() 
+
+ggplot(data = df %>% 
+                filter(year == 1950) %>% 
+                filter(bk_res_4 >0)) +
+    geom_sf(aes(fill = bk_res_4_cat)) +
+    theme_minimal() + 
+    labs(title = "Increase 1939 to 1950")+ 
+    coord_sf(
+    xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+    ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+  ) 
   
-g <- ggplot(data = df_1950) +
-  geom_sf(aes(fill = hom_rt_mean_10, color = bk_res_1)) +
-  theme_minimal() + 
-  labs(title = year_select)
   
+
+ggplot(data = df %>% 
+                filter(year == 1950) %>% 
+                filter(bk_res_5 >0)) +
+    geom_sf(aes(fill = bk_res_5_cat)) +
+    theme_minimal() + 
+    labs(title =  "Increase 1948 to 1950")+ 
+    coord_sf(
+    xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+    ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+  ) 
   
-  plot(g)
+
+ggplot(data = df_45_50_change %>% filter(hom_ct_sum_5_change > 0)) +
+    geom_sf(aes(fill = hom_ct_sum_5_change)) +
+    theme_minimal() + 
+    labs(title =  "Absolute Increase 1945 to 1950")+ 
+    coord_sf(
+    xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+    ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+  ) 
+
+ggplot(data = df_45_50_change %>% filter(hom_rt_mean_5_change > 0)) +
+    geom_sf(aes(fill = hom_rt_mean_5_change)) +
+    theme_minimal() + 
+    labs(title =  "Rate Increase 1945 to 1950")+ 
+    coord_sf(
+    xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+    ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+  ) 
+
+ggplot(data = df_45_50_change %>% filter(hom_ct_sum_5_change < 0)) +
+    geom_sf(aes(fill = hom_ct_sum_5_change)) +
+    theme_minimal() + 
+    labs(title =  "Absolute Decrease 1945 to 1950")+ 
+    coord_sf(
+    xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+    ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+  ) 
+
+ggplot(data = df_45_50_change %>% filter(hom_rt_mean_5_change < 0)) +
+    geom_sf(aes(fill = hom_rt_mean_5_change)) +
+    theme_minimal() + 
+    labs(title =  "Rate Decrease 1945 to 1950")+ 
+    coord_sf(
+    xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+    ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+  ) 
+  
 
 ```
+
+
+```{r}
+df_no_geom <- df %>% st_drop_geometry()
+
+calc_cor <- function(var, control_var = "hom_ct_sum_5", data = df_no_geom) {
+  print(var)
+ correlation <-  cor(data[control_var], data[var], use = "complete.obs")[1]
+ output <- data.frame(variable = var, 
+                      correlation = correlation)
+ return(output)
+}
+
+cols <- c("year_riot", "in_check", "still_desi",  "def_decl", "hazardous" , "industrial", "best", "commercial" , 
+          "bk_res_1" , "bk_res_2", "bk_res_3", "bk_res_4_1", "bk_res_4_2" , "bk_res_4_3" , "bk_res_5_1" ,  "bk_res_5_2", 
+          "bk_res_5_3" )
+output <- map_df(cols, calc_cor)
+
+
+
+```
+
