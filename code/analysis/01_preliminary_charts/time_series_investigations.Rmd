@@ -12,6 +12,16 @@ source("header.R")
 
 df <- st_read("data/mst/hex_merged_w_stats.gpkg")
 
+df <- df %>% 
+  mutate(bk_res_4 = bk_res_4_1 + bk_res_4_2 + bk_res_4_3, 
+         bk_res_5 = bk_res_5_1 + bk_res_5_2 + bk_res_5_3) %>% 
+  mutate(bk_res_4_cat = case_when(bk_res_4_3 > 0 ~ "Any Increase From 1% or More to More than 90%", 
+                                  bk_res_4_2 > 0 ~ "Significant Increase From 1% or More to Less than 90%", 
+                                  bk_res_4_1 > 0 ~ "Any Increase From Less Than 1%")) %>% 
+  mutate(bk_res_5_cat = case_when(bk_res_5_3 > 0 ~ "Any Increase From 1% or More to More than 90%", 
+                                  bk_res_5_2 > 0 ~ "Significant Increase From 1% or More to Less than 90%", 
+                                  bk_res_5_1 > 0 ~ "Any Increase From Less Than 1%"))
+
 
 ```
 
@@ -24,13 +34,13 @@ year_select <- years[1]
 
 for (year_select in years) {
   
-  g <- ggplot(data = df %>% filter(year == year_select)) +
-    geom_sf(aes(fill = hom_ct_sum_5)) +
-    theme_minimal() + 
-    labs(title = year_select)
-  
-  
-  plot(g)
+  # g <- ggplot(data = df %>% filter(year == year_select)) +
+  #   geom_sf(aes(fill = hom_ct_sum_5)) +
+  #   theme_minimal() + 
+  #   labs(title = year_select)
+  # 
+  # 
+  # plot(g)
   
   g <- ggplot(data = df %>% filter(year == year_select)) +
     geom_sf(aes(fill = hom_rt_mean_5)) +
@@ -45,8 +55,172 @@ for (year_select in years) {
  
 ```
 
+# Preliminary Identification of Changes 
+
+```{r}
+
+df_changes <- df %>% 
+  st_drop_geometry() %>% 
+  #remove years with lack of data
+  filter(year_5 != 1880 & year_5 != 1930 & year_5 != 1935 & year_5 != 1940 & year_5 != 1945 & year_5 <= 1965) %>% 
+  distinct(GRID_ID, year_5, hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5) %>% 
+  arrange(year_5) %>% 
+  group_by(GRID_ID) %>% 
+  mutate(across(c(hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5), ~(. - lag(.)))) %>% 
+  filter(year_5 > 1875) %>% 
+  ungroup() 
+
+
+
+change_calc <- function(var, df = df_changes, decline = TRUE) {
+
+  df["change"] <- df[var]
+  
+  df <- df %>% 
+      distinct(GRID_ID, year_5, change) 
+  
+  if (decline) {
+    df <- df %>%  
+      filter(change < 0) %>% 
+      arrange(change) %>% 
+      group_by(year_5) %>% 
+      mutate(pctile = percent_rank(desc(change))) %>%
+      mutate(type = glue("decline_{var}")) 
+  } else {
+    df <- df %>%
+      filter(change > 0) %>% 
+      arrange(desc(change))%>% 
+      group_by(year_5)%>% 
+      mutate(pctile = percent_rank(change)) %>%
+      mutate(type = glue("rise_{var}")) 
+    
+  }
+  
+  df <- df %>% 
+    ungroup() %>% 
+    filter(pctile > 0.9) 
+  
+  return(df)
+  
+}
+
+decline_sum_ct <- change_calc("hom_ct_sum_5", decline = T)
+
+decline_mean_ct <- change_calc("hom_ct_mean_5", decline = T)
+
+decline_mean_rt <- change_calc( "hom_rt_mean_5", decline = T)
+  
+
+rise_sum_ct <- change_calc("hom_ct_sum_5", decline = F)
+
+rise_mean_ct <- change_calc("hom_ct_mean_5", decline = F)
+
+rise_mean_rt <- change_calc("hom_rt_mean_5", decline = F)
+
+
+df_changes_sum <- rbind(decline_sum_ct, decline_mean_ct, decline_mean_rt, rise_sum_ct, rise_mean_ct, rise_mean_rt)
+
+```
+
+
+## Notable Rises
+
+### 1950s - 1960s
+
+```{r}
+
+year_c <- 1955
+var <- "hom_ct_sum_5"
+
+
+plot_rise <- function(year_c, var) {
+
+  #Get riots in that time period
+  riots <- df %>% 
+    st_drop_geometry() %>% 
+    filter(!is.na(name_riot)) %>% distinct(GRID_ID, year) %>% 
+    filter(year >= year_c-5 & year <= year_c) %>% 
+    pull(GRID_ID)
+  
+  #Get significant increases in that time period
+  IDS_rise <- df_changes_sum %>% 
+    filter(type == glue("rise_{var}"),year_5 == year_c) %>% 
+    distinct(GRID_ID) %>% 
+    pull()
+  
+  IDS_decline <- df_changes_sum %>% 
+    filter(type == glue("decline_{var}"),year_5 == year_c) %>% 
+    distinct(GRID_ID) %>% 
+    pull()
+  
+  bk_res_change_49 <- df %>% 
+    filter(year == year_c) %>%
+    filter(!is.na(bk_res_4_cat)) %>% 
+    pull(GRID_ID)
+  
+  #Filter data to those IDS
+  
+  #plot_colors <- setNames(c("#632523","#006400", "#254061", "#7F7F7F"),c("Notable Rise","Notable Decline", "Riot", "Black Migration 1948-1950"))
+
+  
+  df_plot <- df %>% 
+    filter(year == year_c) %>%
+    mutate(flag_rise = ifelse(GRID_ID %in% IDS_rise,  "Notable Rise", ""), 
+           flag_decline = ifelse(GRID_ID %in% IDS_decline , "Notable Decline", ""), 
+         flag_riot = ifelse(GRID_ID %in% riots , "Riot", ""), 
+         flag_res_change =  ifelse(GRID_ID %in% bk_res_change_49 , "Black Migration 1948-1950", "")) %>% 
+    mutate(flag = str_c(flag_rise, flag_decline, flag_riot, flag_res_change, sep =  " ")) %>% 
+    filter(nchar(flag) > 5)
+  
+  ggplot(data = df_plot) +
+      geom_sf(aes(fill = flag, color = bk_res_4_cat)) +
+      theme_minimal() + 
+      labs(title =  glue("Significant Events {year_c}"))+ 
+      #scale_fill_manual(values = plot_colors) + 
+      coord_sf(
+      xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+      ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+    ) 
+    
+  
+}
+
+plot_rise(1950, "hom_ct_sum_5")
+
+plot_rise(1955, "hom_ct_sum_5")
+
+plot_rise(1960, "hom_ct_sum_5")
+
+plot_rise(1965, "hom_ct_sum_5")
+
+
+
+plot_rise(1950, "hom_ct_mean_5")
+
+plot_rise(1955, "hom_ct_mean_5")
+
+plot_rise(1960, "hom_ct_mean_5")
+
+plot_rise(1965, "hom_ct_sum_5")
+
+
+plot_rise(1950, "hom_rt_mean_5")
+
+plot_rise(1955, "hom_rt_mean_5")
+
+plot_rise(1960, "hom_rt_mean_5")
+
+plot_rise(1965, "hom_ct_sum_5")
+
+```
+
+
+
+
 
 ## Investigate Riot Years 
+
+
 
 ## Investigate Zoning 
 
@@ -55,15 +229,7 @@ for (year_select in years) {
 
 ```{r}
 
-df <- df %>% 
-  mutate(bk_res_4 = bk_res_4_1 + bk_res_4_2 + bk_res_4_3, 
-         bk_res_5 = bk_res_5_1 + bk_res_5_2 + bk_res_5_3) %>% 
-  mutate(bk_res_4_cat = case_when(bk_res_4_3 > 0 ~ "Any Increase From 1% or More to More than 90%", 
-                                  bk_res_4_2 > 0 ~ "Significant Increase From 1% or More to Less than 90%", 
-                                  bk_res_4_1 > 0 ~ "Any Increase From Less Than 1%")) %>% 
-  mutate(bk_res_5_cat = case_when(bk_res_5_3 > 0 ~ "Any Increase From 1% or More to More than 90%", 
-                                  bk_res_5_2 > 0 ~ "Significant Increase From 1% or More to Less than 90%", 
-                                  bk_res_5_1 > 0 ~ "Any Increase From Less Than 1%"))
+
 
 df_45_50_change <- df %>% filter(year %in% c(1950, 1945)) %>% 
   dplyr::select(-year_5) %>%
