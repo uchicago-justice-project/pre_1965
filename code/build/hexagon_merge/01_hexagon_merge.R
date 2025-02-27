@@ -27,6 +27,7 @@ for (i in c("1", "2", "3", "4_1", "4_2", "4_3", "5_1", "5_2", "5_3")){
   
 }
 
+
 # Standardize CRS -----------------------
 cha_projects <- st_transform(cha_projects, st_crs(hex))
 riots <- st_transform(riots, st_crs(hex))

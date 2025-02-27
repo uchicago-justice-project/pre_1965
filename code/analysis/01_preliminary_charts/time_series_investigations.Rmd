@@ -3,9 +3,10 @@ title: "Time Series Investigations"
 output:
   html_document:
     df_print: paged
+  pdf_document: default
 ---
 
-```{r}
+```{r, echo=FALSE}
 
 rm(list = ls())
 source("header.R")
@@ -20,34 +21,67 @@ df <- df %>%
                                   bk_res_4_1 > 0 ~ "Any Increase From Less Than 1%")) %>% 
   mutate(bk_res_5_cat = case_when(bk_res_5_3 > 0 ~ "Any Increase From 1% or More to More than 90%", 
                                   bk_res_5_2 > 0 ~ "Significant Increase From 1% or More to Less than 90%", 
-                                  bk_res_5_1 > 0 ~ "Any Increase From Less Than 1%"))
+                                  bk_res_5_1 > 0 ~ "Any Increase From Less Than 1%")) %>% 
+  mutate(bk_res_since_39 = ifelse((bk_res_1 > 0 | bk_res_2 > 0 | bk_res_3 > 0) & bk_res_4 == 0, 
+                                  "Black Residency Since 1939", "No Black Residency in 1950"))
+
+
 
 
 ```
 
-# General Plot
-```{r}
+# Plot of Homicide Rate Over Time
 
-years <- seq(1885, 1965, 5)
+
+```{r, echo=FALSE}
+
+years <- seq(1880, 1965, 5)
 
 year_select <- years[1]
 
+df %>% st_drop_geometry() %>% filter(hom_rt_mean_5>0) %>% 
+  summarise(
+            q_99_rt = quantile(hom_rt_mean_5, 0.99, na.rm = T), 
+            q_999_rt = quantile(hom_rt_mean_5, 0.999, na.rm = T), 
+            q_99_ct = quantile(hom_ct_sum_5, 0.99, na.rm = T), 
+            q_999_ct = quantile(hom_ct_sum_5, 0.999, na.rm = T), 
+            max = max(hom_ct_sum_5, na.rm = T)) 
+
 for (year_select in years) {
   
-  # g <- ggplot(data = df %>% filter(year == year_select)) +
-  #   geom_sf(aes(fill = hom_ct_sum_5)) +
-  #   theme_minimal() + 
-  #   labs(title = year_select)
-  # 
-  # 
-  # plot(g)
+
+
+  g <- ggplot(data = df %>% filter(year == year_select) %>% 
+                mutate(hom_rt_mean_5 = ifelse(is.na(hom_rt_mean_5), 0, hom_rt_mean_5))) +
+    geom_sf(aes(fill = hom_rt_mean_5, color = as.factor(in_check))) +
+    theme_minimal() + 
+    labs(title = glue("Homicide Rate {year_select-5}-{year_select}"), 
+         fill = "Average Homicide Rate", color = "In Checkerboard") + 
+    scale_color_manual(values = c("darkgrey", "black")) +
+    scale_fill_gradientn(
+      colors = c("white",  "#7ce8ff", "#55d0ff", "#00acdf","#0080bf","#00498D", "#02386E", "#00264D"), 
+      limits = c(0, 3), 
+      na.value = "white") 
+  
+  plot(g)
+
+  
+}
+
+for (year_select in years) {
   
   g <- ggplot(data = df %>% filter(year == year_select)) +
-    geom_sf(aes(fill = hom_rt_mean_5)) +
-    theme_minimal() + 
-    labs(title = year_select)
-  
-  
+    geom_sf(aes(fill = hom_ct_sum_5, color = as.factor(in_check))) +
+    theme_minimal() +
+    labs(title = glue("Number of Homicides {year_select-5}-{year_select}"), 
+         fill = "Total Number of Homicides",  color = "In Checkerboard") +
+    scale_color_manual(values = c("darkgrey", "black")) +
+    scale_fill_gradientn(
+      colors = c("white",  "#7ce8ff", "#55d0ff", "#00acdf","#0080bf","#00498D", "#02386E", "#00264D"), 
+      limits = c(0, 80), 
+      na.value = "white") 
+
+
   plot(g)
 
   
@@ -57,12 +91,16 @@ for (year_select in years) {
 
 # Preliminary Identification of Changes 
 
-```{r}
+Calculate the change of total homicides over 5 year periods, the change of average homicides over 5 year periods, and the change of average homicide rate over 5 year periods. 
+
+```{r, echo=FALSE}
 
 df_changes <- df %>% 
   st_drop_geometry() %>% 
   #remove years with lack of data
-  filter(year_5 != 1880 & year_5 != 1930 & year_5 != 1935 & year_5 != 1940 & year_5 != 1945 & year_5 <= 1965) %>% 
+  filter(year_5 != 1880 & year_5 != 1930 & year_5 != 1935 & year_5 != 1940 & year_5 != 1945 ) %>% 
+  #filter to period of interest 
+  filter(year_5 <= 1965) %>%
   distinct(GRID_ID, year_5, hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5) %>% 
   arrange(year_5) %>% 
   group_by(GRID_ID) %>% 
@@ -123,15 +161,14 @@ df_changes_sum <- rbind(decline_sum_ct, decline_mean_ct, decline_mean_rt, rise_s
 ```
 
 
-## Notable Rises
+## Notable Events 
 
 ### 1950s - 1960s
 
-```{r}
+```{r, echo=FALSE}
 
 year_c <- 1955
 var <- "hom_ct_sum_5"
-
 
 plot_rise <- function(year_c, var) {
 
@@ -153,35 +190,111 @@ plot_rise <- function(year_c, var) {
     distinct(GRID_ID) %>% 
     pull()
   
-  bk_res_change_49 <- df %>% 
+  bk_res_change_4 <- df %>% 
     filter(year == year_c) %>%
     filter(!is.na(bk_res_4_cat)) %>% 
     pull(GRID_ID)
   
   #Filter data to those IDS
   
-  #plot_colors <- setNames(c("#632523","#006400", "#254061", "#7F7F7F"),c("Notable Rise","Notable Decline", "Riot", "Black Migration 1948-1950"))
-
-  
   df_plot <- df %>% 
     filter(year == year_c) %>%
-    mutate(flag_rise = ifelse(GRID_ID %in% IDS_rise,  "Notable Rise", ""), 
-           flag_decline = ifelse(GRID_ID %in% IDS_decline , "Notable Decline", ""), 
-         flag_riot = ifelse(GRID_ID %in% riots , "Riot", ""), 
-         flag_res_change =  ifelse(GRID_ID %in% bk_res_change_49 , "Black Migration 1948-1950", "")) %>% 
-    mutate(flag = str_c(flag_rise, flag_decline, flag_riot, flag_res_change, sep =  " ")) %>% 
-    filter(nchar(flag) > 5)
+    mutate(flag_rise = ifelse(GRID_ID %in% IDS_rise,  "Notable Rise", NA), 
+           flag_decline = ifelse(GRID_ID %in% IDS_decline , "Notable Decline", NA), 
+         flag_riot = ifelse(GRID_ID %in% riots , "Riot", NA), 
+         flag_res_change =  ifelse(GRID_ID %in% bk_res_change_4 , 
+                                   "Black Migration 1939-1950", bk_res_since_39)) %>% 
+    mutate(flag = paste0(flag_rise, ifelse(is.na(flag_rise), "", ifelse(!is.na(flag_decline) | 
+                                                                          !is.na(flag_riot) | 
+                                                                          !is.na(flag_res_change)," & ", "")),
+                        flag_decline, ifelse(is.na(flag_decline), "", ifelse(!is.na(flag_riot) | 
+                                                                          !is.na(flag_res_change)," & ", "")), 
+                         flag_riot, ifelse(is.na(flag_riot), "", ifelse(!is.na(flag_res_change), " & ", "")), 
+                        flag_res_change), 
+           flag = str_replace_all(flag, "NA", "")) %>% 
+    filter(!is.na(flag)) %>% 
+    mutate(bk_res_4_cat = ifelse(is.na(bk_res_4_cat), "No Change", bk_res_4_cat))
   
-  ggplot(data = df_plot) +
-      geom_sf(aes(fill = flag, color = bk_res_4_cat)) +
+  
+    #Labels
+  
+   plot_colors <- setNames(c("#c39797", "#632523","red",
+                              "#ffc04c", "#ffdfbf",
+                             
+                            "#A8DCAB", "#80EF80", 
+                            "#00FF00",
+                            "#05472A", "#228B22",
+                            
+                            "#6897bb", "#254061", "#D3D3D3", 
+                            
+                            "#f23fb2", 
+                            "purple", "#e66fa0",
+                            
+                            "black", "black",  
+                            "black", "black", 
+                             "black", "black"),
+                          c("Notable Rise", "Notable Rise & Black Migration 1939-1950", "Notable Rise & Riot",
+                          "Notable Rise & Black Residency Since 1939", "Notable Rise & No Black Residency in 1950", 
+                          
+                          "Notable Decline", "Notable Decline & Black Migration 1939-1950",  
+                          "Notable Decline & Riot", 
+                          
+                          "Notable Decline & Black Residency Since 1939", 
+                          "Notable Decline & No Black Residency in 1950", 
+                          
+                          "Black Migration 1939-1950", 
+                          "Black Residency Since 1939", "No Black Residency in 1950", 
+                          
+                          "Riot",  
+                          "Riot & No Black Residency in 1950", "Riot & Black Residency Since 1939",
+                          
+                          "Notable Rise & Riot & Black Migration 1939-1950",  
+                          "Notable Rise & Riot & Black Residency Since 1939", 
+                          "Notable Rise & Riot & No Black Residency in 1950",
+                          
+                          "Notable Decline & Riot & Black Migration 1939-1950",
+                          "Notable Decline & Riot & Black Residency Since 1939", 
+                          "Notable Decline & Riot & No Black Residency in 1950")) 
+   
+  
+  plot_colors <- plot_colors[df_plot %>% distinct(flag) %>% pull()]
+  
+  plot_colors_lines <- setNames(c( "#e5ff4c", "#ff7f00","#836FFF",
+                                  "white"),
+                                c("Any Increase From 1% or More to More than 90%",
+                                  "Significant Increase From 1% or More to Less than 90%",
+                                  "Any Increase From Less Than 1%", "No Change"))
+
+
+  plot_colors_lines <- plot_colors_lines[df_plot %>% distinct(bk_res_4_cat)  %>% pull()]
+
+  
+    #Plot
+  g <- ggplot(data = df_plot) +
+      geom_sf(aes(fill = flag, color = as.factor(in_check))) +
       theme_minimal() + 
       labs(title =  glue("Significant Events {year_c}"))+ 
-      #scale_fill_manual(values = plot_colors) + 
-      coord_sf(
-      xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
-      ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
-    ) 
+      scale_fill_manual(values = plot_colors) +
+      scale_color_manual(values = c("darkgrey", "black")) 
     
+  plot(g)
+  
+  #Plot
+  g <- ggplot(data = df_plot) +
+      geom_sf(aes(fill = flag, color = bk_res_4_cat), linewidth = 0.55) +
+      theme_minimal() + 
+      labs(title =  glue("Significant Events {year_c}"))+ 
+      scale_fill_manual(values = plot_colors) +
+      scale_color_manual(values = plot_colors_lines) 
+    
+  plot(g)
+  
+  df_plot %>% 
+    st_drop_geometry() %>% 
+    group_by(flag) %>% 
+    summarise(count = n()) %>% 
+    ungroup() %>% 
+    arrange(flag)
   
 }
 
@@ -227,7 +340,7 @@ plot_rise(1965, "hom_ct_sum_5")
 
 ## Investigate Change in Black Residency to 1950
 
-```{r}
+```{r, echo=FALSE}
 
 
 
@@ -311,7 +424,13 @@ ggplot(data = df_45_50_change %>% filter(hom_rt_mean_5_change < 0)) +
 ```
 
 
-```{r}
+
+# Correlations 
+
+
+## Rough Correlation Check 
+
+```{r, echo = FALSE}
 df_no_geom <- df %>% st_drop_geometry()
 
 calc_cor <- function(var, control_var = "hom_ct_sum_5", data = df_no_geom) {
@@ -327,7 +446,42 @@ cols <- c("year_riot", "in_check", "still_desi",  "def_decl", "hazardous" , "ind
           "bk_res_5_3" )
 output <- map_df(cols, calc_cor)
 
-
+output %>% 
+  arrange(-abs(correlation))
 
 ```
 
+# Testing 
+
+
+## Testing Black Residency Values
+
+
+We see polygons where the percentage of 1% concentration is lower than 10% or 90%. There are very few instances where the difference is large (more than 10 percentage points difference in area mapped), and most occur in the south of chicago where the maps were a) most distorted and b) the least amount of development matches the present state. 
+
+It may be best to use the 90% value rather than the 10% or 1% value in these instances. This is further corroborated by the original maps. The areas plotted below where the difference is highest appear to be of fairly equal size in all three maps. 
+
+
+```{r}
+
+
+test <- df %>%
+  filter(year == 1950) %>% 
+  filter(bk_res_3 < bk_res_2 | bk_res_2 < bk_res_1 | bk_res_3 < bk_res_1) %>%
+  dplyr::select(GRID_ID, bk_res_1, bk_res_2, bk_res_3) %>% 
+  mutate(diff_1_2 = bk_res_1 - bk_res_2, 
+         diff_1_3 = bk_res_1 - bk_res_3, 
+         diff_2_3 = bk_res_2 - bk_res_3) %>% 
+  pivot_longer(cols = contains("diff")) %>% 
+  filter(value > 0.1) 
+
+test 
+
+ggplot(data = test ) + 
+  geom_sf(aes(fill = GRID_ID)) + 
+  coord_sf(
+    xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+    ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+  ) 
+  
+```
