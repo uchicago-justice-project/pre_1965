@@ -6,21 +6,20 @@ output:
   pdf_document: default
 ---
 
-```{r, echo=FALSE}
+```{r, include = FALSE}
 
 rm(list = ls())
 source("header.R")
 
 df <- st_read("data/mst/hex_merged_w_stats.gpkg")
-
-
+streets <- st_read("data/intermediate/highways.gpkg")
 
 ```
 
 
-### Estimation of Black Residency in 1939 and 1948 
-```{r, echo=FALSE}
 
+```{r, echo=FALSE}
+### Estimation of Black Residency in 1939 and 1948 
 df_black_res <- df %>% 
   st_drop_geometry() %>% 
   filter(year == 1950) %>% 
@@ -39,21 +38,21 @@ df <- df %>%
                                   bk_res_4_3 > 0 ~ "Any Increase From 1% or More to More than 90%", 
                                   bk_res_4_1 > 0 ~ "Any Increase From Less Than 1%")) %>% 
   mutate(bk_res_since_39 = case_when((bk_res_1 > 0 | bk_res_2 > 0 | bk_res_3 > 0) & est_black_res_39 > 0 & bk_res_4 == 0 ~ 
-                                       "Black Residency Likely Since 1939 & No Migration", 
+                                       "Black Residency Likely Since 1939 & No Black Migration", 
                                      (bk_res_1 > 0 | bk_res_2 > 0 | bk_res_3 > 0) & est_black_res_39 > 0 & bk_res_4 > 0 ~ 
-                                       "Black Residency Likely Since 1939 & Migration",
+                                       "Black Residency Likely Since 1939 & Black Migration",
                                       (bk_res_1 > 0 | bk_res_2 > 0 | bk_res_3 > 0) & est_black_res_39 == 0 & bk_res_4 > 0 ~ 
-                                       "Likely No Black Residency in 1939 & Migration",
+                                       "Likely No Black Residency in 1939 & Black Migration",
                                      TRUE ~ "No Black Residency in 1950")) %>% 
     mutate(bk_res_5_cat = case_when(bk_res_5_2 > 0 ~ "Significant Increase From 1% or More to Less than 90%", 
                                   bk_res_5_3 > 0 ~ "Any Increase From 1% or More to More than 90%", 
                                   bk_res_5_1 > 0 ~ "Any Increase From Less Than 1%")) %>% 
   mutate(bk_res_since_48 = case_when((bk_res_1 > 0 | bk_res_2 > 0 | bk_res_3 > 0) & est_black_res_48 > 0 & bk_res_5 == 0 ~ 
-                                       "Black Residency Likely Since 1948 & No Migration", 
+                                       "Black Residency Likely Since 1948 & No Black Migration", 
                                      (bk_res_1 > 0 | bk_res_2 > 0 | bk_res_3 > 0) & est_black_res_48 > 0 & bk_res_5 > 0 ~ 
-                                       "Black Residency Likely Since 1948 & Migration",
+                                       "Black Residency Likely Since 1948 & Black Migration",
                                       (bk_res_1 > 0 | bk_res_2 > 0 | bk_res_3 > 0) & est_black_res_48 == 0 & bk_res_5 > 0 ~ 
-                                       "Likely No Black Residency in 1948 & Migration",
+                                       "Likely No Black Residency in 1948 & Black Migration",
                                      TRUE ~ "No Black Residency in 1950")) %>% 
   mutate(zoning = case_when(hazardous > 0  ~ "At Least in Part Deemed Hazardous", 
                             def_decl > 0 ~ "At Least in Part Deemed Definitely Declining & No Part Hazardous", 
@@ -68,24 +67,650 @@ df <- df %>%
 
 ```
 
-# Plot of Homicide Rate Over Time
 
+
+```{r, echo=FALSE}
+# Preliminary Identification of Changes 
+df_changes <- df %>% 
+  st_drop_geometry() %>% 
+  distinct(GRID_ID, year_5, hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5) %>% 
+  arrange(year_5) %>% 
+  group_by(GRID_ID) %>% 
+  mutate(across(c(hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5), ~(. - lag(.)))) %>% 
+  ungroup() 
+
+
+test1 <- df_changes %>% filter(year_5 == 1950)
+
+df_changes <- df %>% 
+  st_drop_geometry() %>% 
+  filter(year_5 != 1945) %>% 
+  distinct(GRID_ID, year_5, hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5) %>% 
+  arrange(year_5) %>% 
+  group_by(GRID_ID) %>% 
+  mutate(across(c(hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5), ~(. - lag(.)))) %>% 
+  ungroup() 
+
+
+
+
+
+change_calc <- function(var, df = df_changes, decline = TRUE) {
+
+  df["change"] <- df[var]
+  
+  df <- df %>% 
+      distinct(GRID_ID, year_5, change) 
+  
+  if (decline) {
+    df <- df %>%  
+      filter(change < 0) %>% 
+      arrange(change) %>% 
+      group_by(year_5) %>% 
+      mutate(pctile = percent_rank(desc(change))) %>%
+      mutate(type = glue("decline_{var}")) 
+  } else {
+    df <- df %>%
+      filter(change > 0) %>% 
+      arrange(desc(change))%>% 
+      group_by(year_5)%>% 
+      mutate(pctile = percent_rank(change)) %>%
+      mutate(type = glue("rise_{var}")) 
+    
+  }
+  
+  df <- df %>% 
+    ungroup() %>% 
+    filter(pctile > 0.85) 
+  
+  return(df)
+  
+}
+
+decline_sum_ct <- change_calc("hom_ct_sum_5", decline = T) 
+
+decline_mean_ct <- change_calc("hom_ct_mean_5", decline = T)
+
+decline_mean_rt <- change_calc( "hom_rt_mean_5", decline = T)
+  
+
+rise_sum_ct <- change_calc("hom_ct_sum_5", decline = F) 
+
+rise_mean_ct <- change_calc("hom_ct_mean_5", decline = F)
+
+rise_mean_rt <- change_calc("hom_rt_mean_5", decline = F)
+
+
+df_changes_sum <- rbind(decline_sum_ct, decline_mean_ct, decline_mean_rt, rise_sum_ct, rise_mean_ct, rise_mean_rt)
+
+```
+
+
+## Notable Changes (Upper 15% of Rises or Declines in a Given Year)
+
+
+I calculate the change of total homicides and average homicide rates for 5 year intervals, i.e. 1946-50 vs 1951-55 etc. Changes are always nominal, i.e. if there were 10 total homicides in 1946-50 and 15 total homicides in 1951-55, then the change is 5. If the average homicide rate was 0.2 in 1946-50 and 0.1 in 1951-55, then the change is -0.1. 
+
+I define a notable decline or a notable rise as the top 15% percent of rises and top 15% of declines in a given year for a given metrics. 
+
+I then interact these notable declines or rises with black residency according to 1950 maps and riots in the 40s and 50s. 
+
+#### Preliminary Notes: 
+
+- These charts intend to investigate changes in homicides given what we know about changes in other factors in that time period. 
+- Riots do not ever seem to interact with changes in homicides in the immediate hexagon in which the riot takes place. 
+- Most variation in homicides (and not notable from this map but homicides full stop) take place in areas with black residency. However, there does not seem to be an immediate directional trend - there are both numerous hexagons with declines and rises in homicides. 
+- The number of hexagons with notable rises or declines for specific characteristics appears fairly stable. However, for example, notable declines with black residency since 1939 and black migration to 1950 does seem to double (perhaps a lagged effect of black migration?). 
+
+
+### 1950s - 1960s
+```{r, echo=FALSE}
+
+year_c <- 1955
+var <- "hom_ct_sum_5"
+
+plot_rise <- function(year_c, var) {
+  
+  title_piece <- ifelse(var == "hom_ct_sum_5", "Total Number of Homicides", "Average Homicide Rate")
+
+  #Get riots in previous time period
+  riots <- df %>% 
+    st_drop_geometry() %>% 
+    filter(!is.na(name_riot)) %>% distinct(GRID_ID, year) %>% 
+    filter(year >= year_c-9 & year <= year_c-5) %>% 
+    pull(GRID_ID)
+  
+    #Get riots in that time period
+  riots_cur <- df %>% 
+    st_drop_geometry() %>% 
+    filter(!is.na(name_riot)) %>% distinct(GRID_ID, year) %>% 
+    filter(year >= year_c-4 & year <= year_c) %>% 
+    pull(GRID_ID)
+  
+  #Get significant increases in that time period
+  IDS_rise <- df_changes_sum %>% 
+    filter(type == glue("rise_{var}"),year_5 == year_c) %>% 
+    distinct(GRID_ID) %>% 
+    pull()
+  
+  IDS_decline <- df_changes_sum %>% 
+    filter(type == glue("decline_{var}"),year_5 == year_c) %>% 
+    distinct(GRID_ID) %>% 
+    pull()
+  
+  
+  #Filter data to those IDS
+  
+  df_plot <- df %>% 
+    filter(year == year_c) %>%
+    mutate(flag_rise = ifelse(GRID_ID %in% IDS_rise,  "Notable Rise", NA), 
+           flag_decline = ifelse(GRID_ID %in% IDS_decline , "Notable Decline", NA), 
+         flag_riot = ifelse(GRID_ID %in% riots , "Riot in Previous Half-Decade", NA), 
+         flag_riot_cur = ifelse(GRID_ID %in% riots_cur , "Riot in This Half-Decade", NA)) %>% 
+    mutate(flag = paste0(flag_rise, ifelse(is.na(flag_rise), "", ifelse(!is.na(flag_decline) | 
+                                                                          !is.na(flag_riot) | 
+                                                                          !is.na(bk_res_since_39) | 
+                                                                          !is.na(flag_riot_cur)," & ", "")),
+                        flag_decline, ifelse(is.na(flag_decline), "", ifelse(!is.na(flag_riot) | 
+                                                                               !is.na(flag_riot_cur) |
+                                                                          !is.na(bk_res_since_39)," & ", "")), 
+                         flag_riot, ifelse(is.na(flag_riot), "", ifelse(!is.na(bk_res_since_39) | 
+                                                                          !is.na(flag_riot_cur), " & ", "")), 
+                        flag_riot_cur, ifelse(is.na(flag_riot_cur), "", ifelse(!is.na(bk_res_since_39), " & ", "")), 
+                        bk_res_since_39), 
+           flag = str_replace_all(flag, "NA", "")) %>% 
+    filter(!is.na(flag)) %>% 
+    mutate(bk_res_4_cat = ifelse(is.na(bk_res_4_cat), "No Change", bk_res_4_cat))
+  
+  
+  df_plot %>% st_drop_geometry() %>% distinct(flag)
+  
+    #Labels
+  
+   plot_colors <- setNames(c( 
+                              #Notable Rise & Black Residency Likely Since 1939 & Black Migration
+                             "#632523",
+                             #Notable Rise & Likely No Black Residency in 1939 & Black Migration
+                             "#2a0000",
+                             #Notable Rise & Black Residency Likely Since 1939 & No Black Migration
+                             "#ffc04c", 
+                             #Notable Rise & No Black Residency in 1950
+                             "#ffdfbf",
+                             
+                             
+                            #Notable Decline & Black Residency Likely Since 1939 & Black Migration
+                            "#CCFF00", 
+                            #Notable Decline & Likely No Black Residency in 1939 & Black Migration
+                            "#05472A",
+                            
+                            
+                            #Notable Decline & Black Residency Likely Since 1939 & No Black Migration
+                            "#A8DCAB",
+                            #Notable Decline & No Black Residency in 1950 
+                            "darkgreen",
+                            
+                            #Black Residency Likely Since 1939 & Black Migration
+                            "#6897bb", 
+                            #Likely No Black Residency in 1939 & Black Migration
+                            "lightblue", 
+                            #Black Residency Likely Since 1939 & No Black Migration
+                            "#254061", 
+                            #No Black Residency in 1950
+                            "#D3D3D3", 
+                            
+
+                            #Riot in Previous Half-Decade & No Black Residency in 1950
+                            "purple", 
+                            #"Riot in Previous Half-Decade & Black Residency Likely Since 1939 & No Black Migration",
+                            "black",
+                            #"Riot in Previous Half-Decade & Black Residency Likely Since 1939 & Black Migration",
+                            "red",
+                            #"Riot in Previous Half-Decade & Likely No Black Residency in 1939 & Black Migration",
+                            "#e66fa0",
+                            
+                            #Notable Rise & Riot in Previous Half-Decade & Black Residency Likely Since 1939 & Black Migration
+                            "black", 
+                            #Notable Rise & Riot in Previous Half-Decade & Black Residency Likely Since 1939 & No Black Migration
+                            "black",  
+                            #Notable Rise & Riot in Previous Half-Decade & Likely No Black Residency in 1939 & Black Migration
+                            "black",
+                            #Notable Rise & Riot in Previous Half-Decade & No Black Residency in 1950
+                            "black", 
+                            
+                            #Notable Decline & Riot in Previous Half-Decade & Black Residency Likely Since 1939 & Black Migration
+                            "black", 
+                            #Notable Decline & Riot in Previous Half-Decade & Black Residency Likely Since 1939 & No Black Migration
+                            "black",  
+                            #Notable Decline & Riot in Previous Half-Decade & Likely No Black Residency in 1939 & Black Migration
+                            "black",
+                            #Notable Decline & Riot in Previous Half-Decade & No Black Residency in 1950
+                            "black", 
+                            
+                            #Riot in This Half-Decade & No Black Residency in 1950
+                            "maroon", 
+                            #"Riot in This Half-Decade & Black Residency Likely Since 1939 & No Black Migration",
+                            "black",
+                            #"Riot in This Half-Decade & Black Residency Likely Since 1939 & Black Migration",
+                            "#FF13F0",
+                            #"Riot in This Half-Decade & Likely No Black Residency in 1939 & Black Migration",
+                            "#F88379",
+                            
+                            #Notable Rise & Riot in This Half-Decade & Black Residency Likely Since 1939 & Black Migration
+                            "black", 
+                            #Notable Rise & Riot in This Half-Decade & Black Residency Likely Since 1939 & No Black Migration
+                            "black",  
+                            #Notable Rise & Riot in This Half-Decade & Likely No Black Residency in 1939 & Black Migration
+                            "black",
+                            #Notable Rise & Riot in This Half-Decade & No Black Residency in 1950
+                            "black", 
+                            
+                            #Notable Decline & Riot in This Half-Decade & Black Residency Likely Since 1939 & Black Migration
+                            "black", 
+                            #Notable Decline & Riot in This Half-Decade & Black Residency Likely Since 1939 & No Black Migration
+                            "black",  
+                            #Notable Decline & Riot in This Half-Decade & Likely No Black Residency in 1939 & Black Migration
+                            "black",
+                            #Notable Decline & Riot in This Half-Decade & No Black Residency in 1950
+                            "black"
+                            ),
+                          c("Notable Rise & Black Residency Likely Since 1939 & Black Migration", 
+                            "Notable Rise & Likely No Black Residency in 1939 & Black Migration", 
+                           "Notable Rise & Black Residency Likely Since 1939 & No Black Migration", 
+                           "Notable Rise & No Black Residency in 1950", 
+                          
+                          "Notable Decline & Black Residency Likely Since 1939 & Black Migration",  
+                          "Notable Decline & Likely No Black Residency in 1939 & Black Migration",  
+                          "Notable Decline & Black Residency Likely Since 1939 & No Black Migration", 
+                          "Notable Decline & No Black Residency in 1950", 
+                          
+                          "Black Residency Likely Since 1939 & Black Migration", 
+                          "Likely No Black Residency in 1939 & Black Migration",
+                          "Black Residency Likely Since 1939 & No Black Migration", 
+                          "No Black Residency in 1950", 
+                          
+                          "Riot in Previous Half-Decade & No Black Residency in 1950", 
+                          "Riot in Previous Half-Decade & Black Residency Likely Since 1939 & No Black Migration",
+                          "Riot in Previous Half-Decade & Black Residency Likely Since 1939 & Black Migration",
+                          "Riot in Previous Half-Decade & Likely No Black Residency in 1939 & Black Migration",
+                          
+                          "Notable Rise & Riot in Previous Half-Decade & Black Residency Likely Since 1939 & Black Migration",  
+                          "Notable Rise & Riot in Previous Half-Decade & Black Residency Likely Since 1939 & No Black Migration", 
+                          "Notable Rise & Riot in Previous Half-Decade & Likely No Black Residency in 1939 & Black Migration", 
+                          "Notable Rise & Riot in Previous Half-Decade & No Black Residency in 1950",
+                          
+                          "Notable Decline & Riot in Previous Half-Decade & Black Residency Likely Since 1939 & Black Migration",  
+                          "Notable Decline & Riot in Previous Half-Decade & Black Residency Likely Since 1939 & No Black Migration", 
+                          "Notable Decline & Riot in Previous Half-Decade & Likely No Black Residency in 1939 & Black Migration", 
+                          "Notable Decline & Riot in Previous Half-Decade & No Black Residency in 1950", 
+                          
+                          "Riot in This Half-Decade & No Black Residency in 1950", 
+                          "Riot in This Half-Decade & Black Residency Likely Since 1939 & No Black Migration",
+                          "Riot in This Half-Decade & Black Residency Likely Since 1939 & Black Migration",
+                          "Riot in This Half-Decade & Likely No Black Residency in 1939 & Black Migration",
+                          
+                          "Notable Rise & Riot in This Half-Decade & Black Residency Likely Since 1939 & Black Migration",  
+                          "Notable Rise & Riot in This Half-Decade & Black Residency Likely Since 1939 & No Black Migration", 
+                          "Notable Rise & Riot in This Half-Decade & Likely No Black Residency in 1939 & Black Migration", 
+                          "Notable Rise & Riot in This Half-Decade & No Black Residency in 1950",
+                          
+                          "Notable Decline & Riot in This Half-Decade & Black Residency Likely Since 1939 & Black Migration",  
+                          "Notable Decline & Riot in This Half-Decade & Black Residency Likely Since 1939 & No Black Migration", 
+                          "Notable Decline & Riot in This Half-Decade & Likely No Black Residency in 1939 & Black Migration", 
+                          "Notable Decline & Riot in This Half-Decade & No Black Residency in 1950")) 
+   
+  
+  plot_colors <- plot_colors[df_plot %>% distinct(flag) %>% pull()]
+  
+  plot_colors_lines <- setNames(c( "#e5ff4c", "#ff7f00","#836FFF",
+                                  "white"),
+                                c("Any Increase From 1% or More to More than 90%",
+                                  "Significant Increase From 1% or More to Less than 90%",
+                                  "Any Increase From Less Than 1%", "No Change"))
+
+
+  plot_colors_lines <- plot_colors_lines[df_plot %>% distinct(bk_res_4_cat)  %>% pull()]
+
+
+  g <- ggplot(data = df_plot) +
+      geom_sf(aes(fill = flag)) +
+      theme_minimal() + 
+      labs(title =  glue("Change in {title_piece} Between {year_c - 9}-{year_c - 5} and {year_c - 4}-{year_c}"), 
+           subtitle = glue("Intersection with Black Residency & Riots in {year_c - 9}-{year_c-5} & {year_c - 4}-{year_c}\n\n\n ")) + 
+      scale_fill_manual(values = plot_colors) +
+      theme(legend.key.size = unit(0.4, 'cm')) +
+      theme(legend.title = element_text(size = 9), 
+              legend.text  = element_text(size = 8))
+  plot(g)
+  
+  
+  df_plot %>% 
+    st_drop_geometry() %>% 
+    group_by(flag) %>% 
+    summarise(count = n()) %>% 
+    ungroup() %>% 
+    arrange(flag) %>% 
+    print()
+  
+  df_plot %>% 
+    st_drop_geometry() %>% 
+    group_by(flag) %>% 
+    summarise(count = n()) %>% 
+    ungroup() %>% 
+    arrange(-count)%>% 
+    rename(flag_sorted = flag) %>% 
+    print()
+  
+}
+
+
+
+plot_rise(1950, "hom_ct_sum_5")
+
+plot_rise(1955, "hom_ct_sum_5")
+
+#plot_rise(1960, "hom_ct_sum_5")
+
+#plot_rise(1965, "hom_ct_sum_5")
+
+
+
+plot_rise(1950, "hom_rt_mean_5")
+
+plot_rise(1955, "hom_rt_mean_5")
+
+#plot_rise(1960, "hom_rt_mean_5")
+
+#plot_rise(1965, "hom_rt_mean_5")
+
+```
+
+# Select Years of Highway Construction
+
+Notes on Highways: https://docs.google.com/document/d/1VVL-i87A_hBrtvJCNCINOAzE-xXXuCf4xSevoAj3nxA/
+
+The tables below use preliminary data on highway construction dates. I combine these with a) changes in homicides and b) series of homicide snapshots over time. 
+
+#### Preliminary Notes: 
+
+*Eisenhower Expressway*
+
+- At least parts of the expressway started construction in 1949. 
+- Does appear to have been built in an area where homicides were already high. 
+- However, we do seem to see a clustering of homicides around the highway after 1950. 
+
+*Edens Expressway* 
+
+- Very unclear when construction began, but likely late 40s. 
+- No clear clustering occurring around the highway. We do see the occasional year with homicides close to the highway end, but not clear that the trends change after construction is started or that these homicides occur more frequently around the highway than elsewhere. 
+
+
+*Bishop Ford Freeway / Calumet Expressway*
+
+- Very unclear when construction began, but likely late 40s. 
+- Similar to Edens Expressway. 
+
+````{r, echo=FALSE}
+df_geom <- df %>% dplyr::select(GRID_ID, year, in_check) 
+
+df_changes_plot <- inner_join(df_geom, df_changes, by= c("GRID_ID", "year" = "year_5"))
+
+streets %>% 
+  st_drop_geometry() %>% 
+  distinct(DEDICATED_, begin, open) %>% 
+  arrange(begin)
+
+df %>% 
+  st_drop_geometry() %>% 
+  filter(!is.na(name_riot)) %>% 
+  dplyr::select(contains("riot"))
+  
+
+````
+
+## 1946 - 1950 comparing to 1941-45
+
+```{r, echo = FALSE}
+
+streets_select <- streets %>% 
+  filter(begin <= 1950 | open <= 1950)
+
+years <- c(1950, 1955)
+
+for (year_select in years) {
+  
+g <- ggplot() +
+    geom_sf(data = df_changes_plot %>% filter(year == year_select), 
+            aes(fill = hom_rt_mean_5)) +
+    geom_sf(data = streets_select, aes(color = paste0(DEDICATED_, ", Construction Estimated ", begin, 
+                                                      "\nOpening Date ", open))) + 
+    theme_minimal() + 
+    labs(title = glue("Change in Homicide Rate\nBetween {year_select-9}-{year_select-5} and {year_select-4}-{year_select}\n\n\n "), 
+         fill = "Change in Average Homicide Rate", color = "Highway") + 
+    scale_fill_gradientn(
+      colors = c("darkred" , "red", "pink", "white",  "#7ce8ff", "#55d0ff", "#00264D"), 
+      limits = c(-0.10,0.10), 
+      na.value = "white") 
+  
+
+plot(g)
+
+g <- ggplot() +
+    geom_sf(data = df_changes_plot %>% filter(year == year_select), 
+            aes(fill = hom_ct_sum_5)) +
+    geom_sf(data = streets_select, aes(color = paste0(DEDICATED_, ", Construction Estimated ", begin, 
+                                                      "\nOpening Date ", open))) + 
+    theme_minimal() +
+    labs(title = glue("Change in Total Number of Homicides\nBetween {year_select-9}-{year_select-5} and {year_select-4}-{year_select}\n\n\n "), 
+         fill = "Change in Total Number of Homicides",  color = "Highway") +
+    scale_fill_gradientn(
+      colors = c("darkred" , "red", "pink", "white",  "#7ce8ff", "#55d0ff", "#00264D"), 
+      limits = c(-30, 30), 
+      na.value = "white") 
+
+
+  plot(g)
+  
+} 
+
+years <- seq(1940, 1960, 1)
+
+for (year_select in years) {
+  
+  g <- ggplot() +
+    geom_sf(data = df %>% filter(year == year_select), 
+            aes(fill = hom_ct)) +
+    geom_sf(data = streets_select, aes(color = paste0(DEDICATED_, ", Construction Estimated ", begin, 
+                                                      "\nOpening Date ", open))) + 
+    theme_minimal() +
+    labs(title = glue("Number of Homicides {year_select}"), 
+         fill = "Total Number of Homicides", color = "Highway") +
+    scale_fill_gradientn(
+      colors = c("white",  "#7ce8ff", "#55d0ff", "#00acdf","#0080bf","#00498D", "#02386E", "#00264D"), 
+      limits = c(0, 10), 
+      na.value = "white") 
+
+
+  plot(g)
+
+  
+}
+
+
+```
+
+
+## 1955 - 1960
+
+*Stevenson Expressway*
+
+- Construction started after 1956 
+- There may be some increased frequency of homicides around highway after construction begins but unclear if there really is a trend. 
+
+*Kennedy Expressway* 
+
+- Construction began 1956 - 1957
+- Generally not a lot of consistent clustering but select years such as 1968, 1964, 1960 seem to have a clear cluster along the highway. 
+- Note that the Kennedy expressway seems close to Anita's line of longest gaps - will need to do more work to look into that. 
+
+
+*Dan Ryan Expressway*
+
+- Construction began after 1956 
+- Appears to have been built in an area with high rates of homicides. 
+- However, notably years like 1958 to seem to suggest increased clustering specifically around the highway. 
+- Generally, looking at changes from 1956/60 to 1961/65, we do seem to see an increase in the number of homicides on the south part of the highway. Further, there seems to be some decline along the northern parts. 
+
+
+*Chicago Skyway* 
+
+- No immediate increases as construction starts. 
+- However, in the late 60s we do appear to see clusters around the highway. 
+
+```{r, echo = FALSE}
+
+streets_select <- streets %>% 
+  filter((begin > 1955 & begin <= 1960) | (open > 1955 & open <= 1960))
+
+years <- c(1960, 1965)
+
+for (year_select in years) {
+  
+g <- ggplot() +
+    geom_sf(data = df_changes_plot %>% filter(year == year_select), 
+            aes(fill = hom_rt_mean_5)) +
+    geom_sf(data = streets_select, aes(color =  paste0(DEDICATED_, ", Construction Estimated ", begin, 
+                                                      "\nOpening Date ", open))) + 
+    theme_minimal() + 
+    labs(title = glue("Change in Homicide Rate\nBetween {year_select-9}-{year_select-5} and {year_select-4}-{year_select} \n \n "), 
+         fill = "Change in Average Homicide Rate", color = "In Checkerboard") + 
+    scale_fill_gradientn(
+      colors = c("darkred" , "red", "pink", "white",  "#7ce8ff", "#55d0ff", "#00264D"), 
+      limits = c(-0.1,0.1), 
+      na.value = "white") 
+  
+
+plot(g)
+
+g <- ggplot() +
+    geom_sf(data = df_changes_plot %>% filter(year == year_select), 
+            aes(fill = hom_ct_sum_5)) +
+    geom_sf(data = streets_select, aes(color =  paste0(DEDICATED_, ", Construction Estimated ", begin, 
+                                                      "\nOpening Date ", open))) + 
+    theme_minimal() +
+    labs(title = glue("Change in Total Number of Homicides\nBetween {year_select-9}-{year_select-5} and {year_select-4}-{year_select}\n\n "), 
+         fill = "Change in Total Number of Homicides",  color = "In Checkerboard") +
+    scale_fill_gradientn(
+      colors = c("darkred" , "red", "pink", "white",  "#7ce8ff", "#55d0ff", "#00264D"), 
+      limits = c(-30, 30), 
+      na.value = "white") 
+
+
+  plot(g)
+  
+} 
+
+years <- seq(1950, 1970, 1)
+
+for (year_select in years) {
+  
+  g <- ggplot() +
+    geom_sf(data = df %>% filter(year == year_select), 
+            aes(fill = hom_ct)) +
+    geom_sf(data = streets_select, aes(color = paste0(DEDICATED_, ", Construction Estimated ", begin, 
+                                                      "\nOpening Date ", open))) + 
+    theme_minimal() +
+    labs(title = glue("Number of Homicides {year_select} \n\n "), 
+         fill = "Total Number of Homicides", color = "Highway") +
+    scale_fill_gradientn(
+      colors = c("white",  "#7ce8ff", "#55d0ff", "#00acdf","#0080bf","#00498D", "#02386E", "#00264D"), 
+      limits = c(0, 10), 
+      na.value = "white") 
+
+
+  plot(g)
+
+  
+}
+
+```
+
+## Riots 
+
+Intends to investigate homicide patterns around areas where riot takes place.
+
+(Annoying color changes for a given riot are noted, I just haven't spent the time to fix it.) 
+
+
+*1947: Fernwood Park housing project, August 13th, 1947 to August 16th, 1947* 
+
+- We do see more homicides in surrounding hexagons the year after riot takes place. 
+
+*1953: Trumbull Park, 1953-1954* 
+
+- See homicides in surrounding hexagons. 
+
+```{r, echo=FALSE}
+
+riots_geom <- df %>% 
+  filter(!is.na(name_riot)) %>% 
+  dplyr::select(contains("riot"))
+
+years <- seq(1940, 1965, 1)
+
+for (year_select in years) {
+  
+  g <- ggplot() +
+    geom_sf(data = df %>% filter(year == year_select), 
+            aes(fill = hom_ct)) + 
+    geom_sf(data = riots_geom %>% filter(year_riot <= year_select), 
+            aes(color = as.factor(year_riot)), linewidth= 1) + 
+    theme_minimal() +
+    labs(title = glue("Number of Homicides {year_select}"), 
+         fill = "Total Number of Homicides", color = "Riots") +
+    scale_fill_gradientn(
+      colors = c("white",  "#7ce8ff", "#55d0ff", "#00acdf","#0080bf","#00498D", "#02386E", "#00264D"), 
+      limits = c(0, 10), 
+      na.value = "white") 
+
+
+  plot(g)
+  
+}
+
+
+for (year_select in years) {
+  
+  g <- ggplot() +
+    geom_sf(data = df %>% filter(year == year_select), 
+            aes(fill = hom_rt)) + 
+    geom_sf(data = riots_geom %>% filter(year_riot <= year_select), 
+            aes(color = as.factor(year_riot)), linewidth= 1) + 
+    theme_minimal() +
+    labs(title = glue("Homicide Rates {year_select}"), 
+         fill = "Homicide Rates", color = "Riots") +
+    scale_fill_gradientn(
+      colors = c("white",  "#7ce8ff", "#55d0ff", "#00acdf","#0080bf","#00498D", "#02386E", "#00264D"), 
+      limits = c(0, 0.301), 
+      na.value = "white") 
+
+
+  plot(g)
+  
+}
+```
+
+
+# Appendix 
+
+## Plots of Homicides Over Time
 
 ```{r, echo=FALSE}
 
 years <- seq(1880, 1965, 5)
 
+years <- setdiff(years, c(1930, 1935))
+
 year_select <- years[1]
-
-df %>% st_drop_geometry() %>% filter(hom_rt_mean_5>0) %>% 
-  summarise(
-            q_99_rt = quantile(hom_rt_mean_5, 0.99, na.rm = T), 
-            q_999_rt = quantile(hom_rt_mean_5, 0.999, na.rm = T), 
-            q_99_ct = quantile(hom_ct_sum_5, 0.99, na.rm = T), 
-            q_999_ct = quantile(hom_ct_sum_5, 0.999, na.rm = T), 
-            max = max(hom_ct_sum_5, na.rm = T)) 
-
-
 
 for (year_select in years) {
   
@@ -103,11 +728,6 @@ for (year_select in years) {
   
   plot(g)
 
-  
-}
-
-for (year_select in years) {
-  
   g <- ggplot(data = df %>% filter(year == year_select)) +
     geom_sf(aes(fill = hom_ct_sum_5, color = as.factor(in_check))) +
     theme_minimal() +
@@ -121,13 +741,8 @@ for (year_select in years) {
 
 
   plot(g)
-
   
-}
-
-for (year_select in years) {
-  
-  g <- ggplot(data = df %>% filter(year == year_select)) +
+    g <- ggplot(data = df %>% filter(year == year_select)) +
     geom_sf(aes(fill = bldg_ct_mean_5, color = as.factor(in_check))) +
     theme_minimal() + 
     labs(title = glue("Building Count {year_select-4}-{year_select}"), 
@@ -140,19 +755,76 @@ for (year_select in years) {
   
   plot(g)
 
-  
 }
 
 
  
 ```
 
-# Zoning as of 1935/40 
+
+## Changes Over Time 
+
+```{r, echo=FALSE}
+
+df_geom <- df %>% dplyr::select(GRID_ID, year, in_check) 
+
+df_changes_plot <- inner_join(df_geom, df_changes, by= c("GRID_ID", "year" = "year_5"))
+
+
+years <- seq(1885, 1965, 5)
+years <- setdiff(years, c(1930, 1935, 1940))
+
+year_select <- years[1]
+
+for (year_select in years) {
+  
+  g <- ggplot(data = df_changes_plot %>% filter(year == year_select) ) +
+    geom_sf(aes(fill = hom_rt_mean_5, color = as.factor(in_check))) +
+    theme_minimal() + 
+    labs(title = glue("Change in Homicide Rate Between {year_select-9}-{year_select-5} and {year_select-4}-{year_select}"), 
+         fill = "Change in Average Homicide Rate", color = "In Checkerboard") + 
+    scale_color_manual(values = c("darkgrey", "black")) +
+    scale_fill_gradientn(
+      colors = c("darkred" , "red", "pink", "white",  "#7ce8ff", "#55d0ff", "#00264D"), 
+      limits = c(-3, 3), 
+      na.value = "white") 
+  
+  plot(g)
+
+  
+}
+
+for (year_select in years) {
+  
+  g <- ggplot(data = df_changes_plot %>% filter(year == year_select)) +
+    geom_sf(aes(fill = hom_ct_sum_5, color = as.factor(in_check))) +
+    theme_minimal() +
+    labs(title = glue("Change in Total Number of Homicides Between {year_select-9}-{year_select-5} and {year_select-4}-{year_select}"), 
+         fill = "Change in Total Number of Homicides",  color = "In Checkerboard") +
+    scale_color_manual(values = c("darkgrey", "black")) +
+    scale_fill_gradientn(
+      colors = c("darkred" , "red", "pink", "white",  "#7ce8ff", "#55d0ff", "#00264D"), 
+      limits = c(-80, 80), 
+      na.value = "white") 
+
+
+  plot(g)
+
+
+}
+
+ 
+```
+
+## Zoning as of 1935/40 
 
 
 ```{r, echo=FALSE}
 
 years <- seq(1880, 1965, 5)
+
+years <- setdiff(years, c(1930, 1935))
+
 
 year_select <- years[1]
 
@@ -209,60 +881,20 @@ for (year_select in years) {
  
 ```
 
-# Preliminary Identification of Changes 
 
-Calculate the change of total homicides over 5 year periods, the change of average homicides over 5 year periods, and the change of average homicide rate over 5 year periods. 
+### Percentage Changes 
 
-Define Notable Decline or Rise as change in the upper 10 percent of declines or rises within year. 
 
 ```{r, echo=FALSE}
-
+# Preliminary Identification of Changes 
 df_changes <- df %>% 
   st_drop_geometry() %>% 
-  #remove years with lack of data
-  filter(year_5 != 1880 & year_5 != 1930 & year_5 != 1935 & year_5 != 1940 & year != 1945 ) %>% 
-  #filter to period of interest 
-  filter(year_5 <= 1965) %>%
   distinct(GRID_ID, year_5, hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5) %>% 
   arrange(year_5) %>% 
   group_by(GRID_ID) %>% 
-  mutate(across(c(hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5), ~(. - lag(.)))) %>% 
-  filter(year_5 > 1875) %>% 
+  mutate(across(c(hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5), ~((. - lag(.))/lag(.)))) %>% 
   ungroup() 
 
-
-
-change_calc <- function(var, df = df_changes, decline = TRUE) {
-
-  df["change"] <- df[var]
-  
-  df <- df %>% 
-      distinct(GRID_ID, year_5, change) 
-  
-  if (decline) {
-    df <- df %>%  
-      filter(change < 0) %>% 
-      arrange(change) %>% 
-      group_by(year_5) %>% 
-      mutate(pctile = percent_rank(desc(change))) %>%
-      mutate(type = glue("decline_{var}")) 
-  } else {
-    df <- df %>%
-      filter(change > 0) %>% 
-      arrange(desc(change))%>% 
-      group_by(year_5)%>% 
-      mutate(pctile = percent_rank(change)) %>%
-      mutate(type = glue("rise_{var}")) 
-    
-  }
-  
-  df <- df %>% 
-    ungroup() %>% 
-    filter(pctile > 0.9) 
-  
-  return(df)
-  
-}
 
 decline_sum_ct <- change_calc("hom_ct_sum_5", decline = T) 
 
@@ -283,257 +915,8 @@ df_changes_sum <- rbind(decline_sum_ct, decline_mean_ct, decline_mean_rt, rise_s
 ```
 
 
-## Changes Over Time 
-
-```{r, echo=FALSE}
-
-df_geom <- df %>% dplyr::select(GRID_ID, year, in_check) 
-
-df_changes_plot <- inner_join(df_geom, df_changes, by= c("GRID_ID", "year" = "year_5"))
-
-years <- seq(1885, 1965, 5)
-
-year_select <- years[1]
-
-for (year_select in years) {
-  
-  g <- ggplot(data = df_changes_plot %>% filter(year == year_select) ) +
-    geom_sf(aes(fill = hom_rt_mean_5, color = as.factor(in_check))) +
-    theme_minimal() + 
-    labs(title = glue("Change in Homicide Rate Between {year_select-9}-{year_select-5} and {year_select-4}-{year_select}"), 
-         fill = "Change in Average Homicide Rate", color = "In Checkerboard") + 
-    scale_color_manual(values = c("darkgrey", "black")) +
-    scale_fill_gradientn(
-      colors = c("white",  "#7ce8ff", "#55d0ff", "#00acdf","#0080bf","#00498D", "#02386E", "#00264D"), 
-      limits = c(0, 3), 
-      na.value = "white") 
-  
-  plot(g)
-
-  
-}
-
-for (year_select in years) {
-  
-  g <- ggplot(data = df_changes_plot %>% filter(year == year_select)) +
-    geom_sf(aes(fill = hom_ct_sum_5, color = as.factor(in_check))) +
-    theme_minimal() +
-    labs(title = glue("Change in Total Number of Homicides Between {year_select-9}-{year_select-5} and {year_select-4}-{year_select}"), 
-         fill = "Change in Total Number of Homicides",  color = "In Checkerboard") +
-    scale_color_manual(values = c("darkgrey", "black")) +
-    scale_fill_gradientn(
-      colors = c("white",  "#7ce8ff", "#55d0ff", "#00acdf","#0080bf","#00498D", "#02386E", "#00264D"), 
-      limits = c(0, 80), 
-      na.value = "white") 
-
-
-  plot(g)
-
-
-}
-
- 
-```
-
-## Notable Changes (Upper 10% of Rises or Declines in a Given Year)
 ### 1950s - 1960s
-
 ```{r, echo=FALSE}
-
-year_c <- 1955
-var <- "hom_ct_sum_5"
-
-plot_rise <- function(year_c, var) {
-  
-  title_piece <- ifelse(var == "hom_ct_sum_5", "Total Number of Homicides", "Average Homicide Rate")
-
-  #Get riots in that time period
-  riots <- df %>% 
-    st_drop_geometry() %>% 
-    filter(!is.na(name_riot)) %>% distinct(GRID_ID, year) %>% 
-    filter(year >= year_c-5 & year <= year_c) %>% 
-    pull(GRID_ID)
-  
-  #Get significant increases in that time period
-  IDS_rise <- df_changes_sum %>% 
-    filter(type == glue("rise_{var}"),year_5 == year_c) %>% 
-    distinct(GRID_ID) %>% 
-    pull()
-  
-  IDS_decline <- df_changes_sum %>% 
-    filter(type == glue("decline_{var}"),year_5 == year_c) %>% 
-    distinct(GRID_ID) %>% 
-    pull()
-  
-  
-  #Filter data to those IDS
-  
-  df_plot <- df %>% 
-    filter(year == year_c) %>%
-    mutate(flag_rise = ifelse(GRID_ID %in% IDS_rise,  "Notable Rise", NA), 
-           flag_decline = ifelse(GRID_ID %in% IDS_decline , "Notable Decline", NA), 
-         flag_riot = ifelse(GRID_ID %in% riots , "Riot", NA)) %>% 
-    mutate(flag = paste0(flag_rise, ifelse(is.na(flag_rise), "", ifelse(!is.na(flag_decline) | 
-                                                                          !is.na(flag_riot) | 
-                                                                          !is.na(bk_res_since_39)," & ", "")),
-                        flag_decline, ifelse(is.na(flag_decline), "", ifelse(!is.na(flag_riot) | 
-                                                                          !is.na(bk_res_since_39)," & ", "")), 
-                         flag_riot, ifelse(is.na(flag_riot), "", ifelse(!is.na(bk_res_since_39), " & ", "")), 
-                        bk_res_since_39), 
-           flag = str_replace_all(flag, "NA", "")) %>% 
-    filter(!is.na(flag)) %>% 
-    mutate(bk_res_4_cat = ifelse(is.na(bk_res_4_cat), "No Change", bk_res_4_cat))
-  
-  
-  df_plot %>% st_drop_geometry() %>% distinct(flag)
-  
-    #Labels
-  
-   plot_colors <- setNames(c( #"Notable Rise"
-                              "#c39797", 
-                              #Notable Rise & Black Residency Likely Since 1939 & Migration
-                             "#632523",
-                             #Notable Rise & Likely No Black Residency in 1939 & Migration
-                             "#2a0000",
-                             
-                             #Notable Rise & Riot
-                             "red",
-                             #Notable Rise & Black Residency Likely Since 1939 & No Migration
-                             "#ffc04c", 
-                             #Notable Rise & No Black Residency in 1950
-                             "#ffdfbf",
-                             
-                             
-                             #Notable Decline
-                            "#A8DCAB", 
-                            #Notable Decline & Black Residency Likely Since 1939 & Migration
-                            "#80EF80", 
-                            #Notable Decline & Likely No Black Residency in 1939 & Migration
-                            "#05472A",
-                            
-                            
-                            #Notable Decline & Black Residency Likely Since 1939 & No Migration
-                            "green",
-                            #Notable Decline & No Black Residency in 1950 
-                            "darkgreen",
-                            
-                            #Black Residency Likely Since 1939 & Migration
-                            "#6897bb", 
-                            #Likely No Black Residency in 1939 & Migration
-                            "lightblue", 
-                            #Black Residency Likely Since 1939 & No Migration
-                            "#254061", 
-                            #No Black Residency in 1950
-                            "#D3D3D3", 
-                            
-                            #Riot 
-                            "maroon", 
-                            #Notable Decline & Riot
-                            "#f23fb2", 
-                            #Riot & No Black Residency in 1950
-                            "purple", 
-                            #"Riot & Black Residency Likely Since 1939 & No Migration",
-                            "black",
-                            #"Riot & Black Residency Likely Since 1939 & Migration",
-                            "red",
-                            #"Riot & Likely No Black Residency in 1939 & Migration",
-                            "#e66fa0",
-                            
-                            #Notable Rise & Riot & Black Residency Likely Since 1939 & Migration
-                            "black", 
-                            #Notable Rise & Riot & Black Residency Likely Since 1939 & No Migration
-                            "black",  
-                            #Notable Rise & Riot & Likely No Black Residency in 1939 & Migration
-                            "black",
-                            #Notable Rise & Riot & No Black Residency in 1950
-                            "black", 
-                            
-                            #Notable Decline & Riot & Black Residency Likely Since 1939 & Migration
-                            "black", 
-                            #Notable Decline & Riot & Black Residency Likely Since 1939 & No Migration
-                            "black",  
-                            #Notable Decline & Riot & Likely No Black Residency in 1939 & Migration
-                            "black",
-                            #Notable Decline & Riot & No Black Residency in 1950
-                            "black"
-                            ),
-                          c("Notable Rise", 
-                            "Notable Rise & Black Residency Likely Since 1939 & Migration", 
-                            "Notable Rise & Likely No Black Residency in 1939 & Migration", 
-                            
-                            "Notable Rise & Riot",
-                           "Notable Rise & Black Residency Likely Since 1939 & No Migration", 
-                           "Notable Rise & No Black Residency in 1950", 
-                          
-                          "Notable Decline", 
-                          "Notable Decline & Black Residency Likely Since 1939 & Migration",  
-                          "Notable Decline & Likely No Black Residency in 1939 & Migration",  
-                          
-                          "Notable Decline & Black Residency Likely Since 1939 & No Migration", 
-                          "Notable Decline & No Black Residency in 1950", 
-                          
-                          "Black Residency Likely Since 1939 & Migration", 
-                          "Likely No Black Residency in 1939 & Migration",
-                          "Black Residency Likely Since 1939 & No Migration", 
-                          "No Black Residency in 1950", 
-                          
-                          "Riot",  
-                          "Notable Decline & Riot",
-                          "Riot & No Black Residency in 1950", 
-                          "Riot & Black Residency Likely Since 1939 & No Migration",
-                          "Riot & Black Residency Likely Since 1939 & Migration",
-                          "Riot & Likely No Black Residency in 1939 & Migration",
-                          
-                          "Notable Rise & Riot & Black Residency Likely Since 1939 & Migration",  
-                          "Notable Rise & Riot & Black Residency Likely Since 1939 & No Migration", 
-                          "Notable Rise & Riot & Likely No Black Residency in 1939 & Migration", 
-                          "Notable Rise & Riot & No Black Residency in 1950",
-                          
-                          "Notable Decline & Riot & Black Residency Likely Since 1939 & Migration",  
-                          "Notable Decline & Riot & Black Residency Likely Since 1939 & No Migration", 
-                          "Notable Decline & Riot & Likely No Black Residency in 1939 & Migration", 
-                          "Notable Decline & Riot & No Black Residency in 1950")) 
-   
-  
-  plot_colors <- plot_colors[df_plot %>% distinct(flag) %>% pull()]
-  
-  plot_colors_lines <- setNames(c( "#e5ff4c", "#ff7f00","#836FFF",
-                                  "white"),
-                                c("Any Increase From 1% or More to More than 90%",
-                                  "Significant Increase From 1% or More to Less than 90%",
-                                  "Any Increase From Less Than 1%", "No Change"))
-
-
-  plot_colors_lines <- plot_colors_lines[df_plot %>% distinct(bk_res_4_cat)  %>% pull()]
-
-
-  g <- ggplot(data = df_plot) +
-      geom_sf(aes(fill = flag)) +
-      theme_minimal() + 
-      labs(title =  glue("Change in {title_piece} Between {year_c - 9}-{year_c - 5} and {year_c - 4}-{year_c}"), 
-           subtitle = glue("Intersection with Black Residency as of 1939 and 1950 & Riot in {year_c - 4}-{year_c}")) + 
-      scale_fill_manual(values = plot_colors) 
-    
-  plot(g)
-  
-  # #Plot
-  # g <- ggplot(data = df_plot) +
-  #     geom_sf(aes(fill = flag, color = bk_res_4_cat), linewidth = 0.55) +
-  #     theme_minimal() + 
-  #     labs(title =  glue("Change for {year_c}"))+ 
-  #     scale_fill_manual(values = plot_colors) +
-  #     scale_color_manual(values = plot_colors_lines) 
-  #   
-  # plot(g)
-  
-  df_plot %>% 
-    st_drop_geometry() %>% 
-    group_by(flag) %>% 
-    summarise(count = n()) %>% 
-    ungroup() %>% 
-    arrange(flag)
-  
-}
 
 
 
@@ -541,9 +924,9 @@ plot_rise(1950, "hom_ct_sum_5")
 
 plot_rise(1955, "hom_ct_sum_5")
 
-plot_rise(1960, "hom_ct_sum_5")
+#plot_rise(1960, "hom_ct_sum_5")
 
-plot_rise(1965, "hom_ct_sum_5")
+#plot_rise(1965, "hom_ct_sum_5")
 
 
 
@@ -551,26 +934,25 @@ plot_rise(1950, "hom_rt_mean_5")
 
 plot_rise(1955, "hom_rt_mean_5")
 
-plot_rise(1960, "hom_rt_mean_5")
+#plot_rise(1960, "hom_rt_mean_5")
 
-plot_rise(1965, "hom_rt_mean_5")
+#plot_rise(1965, "hom_rt_mean_5")
 
 ```
 
 
-
-# Investigate Change in Black Residency 1939 - 1848 - 1950 and Zoning 
-
-
-
-## Investigate Riot Years 
+### Investigate Change in Black Residency 1939 - 1848 - 1950 and Zoning 
 
 
 
-# Correlations 
+### Investigate Riot Years 
 
 
-## Rough Correlation Check 
+
+## Correlations 
+
+
+### Rough Correlation Check 
 
 ```{r, echo = FALSE}
 df_no_geom <- df %>% st_drop_geometry()
@@ -593,10 +975,10 @@ output %>%
 
 ```
 
-# Testing 
+## Testing 
 
 
-## Testing Black Residency Values
+### Testing Black Residency Values
 
 
 We see polygons where the percentage of 1% concentration is lower than 10% or 90%. There are very few instances where the difference is large (more than 10 percentage points difference in area mapped), and most occur in the south of Chicago where the maps were a) most distorted and b) the least amount of development matches the present state. 
@@ -604,7 +986,7 @@ We see polygons where the percentage of 1% concentration is lower than 10% or 90
 It may be best to use the 90% value rather than the 10% or 1% value in these instances. This is further corroborated by the original maps. The areas plotted below where the difference is highest appear to be of fairly equal size in all three maps. 
 
 
-```{r}
+```{r, echo=FALSE}
 
 
 test <- df %>%
