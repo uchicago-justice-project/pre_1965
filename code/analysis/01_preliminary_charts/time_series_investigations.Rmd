@@ -80,22 +80,7 @@ df_changes <- df %>%
   ungroup() 
 
 
-test1 <- df_changes %>% filter(year_5 == 1950)
-
-df_changes <- df %>% 
-  st_drop_geometry() %>% 
-  filter(year_5 != 1945) %>% 
-  distinct(GRID_ID, year_5, hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5) %>% 
-  arrange(year_5) %>% 
-  group_by(GRID_ID) %>% 
-  mutate(across(c(hom_ct_sum_5, hom_ct_mean_5, hom_rt_mean_5), ~(. - lag(.)))) %>% 
-  ungroup() 
-
-
-
-
-
-change_calc <- function(var, df = df_changes, decline = TRUE) {
+change_calc <- function(var, df = df_changes, rank = 0.85, decline = TRUE) {
 
   df["change"] <- df[var]
   
@@ -121,7 +106,7 @@ change_calc <- function(var, df = df_changes, decline = TRUE) {
   
   df <- df %>% 
     ungroup() %>% 
-    filter(pctile > 0.85) 
+    filter(pctile > rank) 
   
   return(df)
   
@@ -169,39 +154,46 @@ I then interact these notable declines or rises with black residency according t
 year_c <- 1955
 var <- "hom_ct_sum_5"
 
-plot_rise <- function(year_c, var) {
+plot_rise <- function(year_c, var, df_changes = df_changes_sum, df_main = df) {
   
   title_piece <- ifelse(var == "hom_ct_sum_5", "Total Number of Homicides", "Average Homicide Rate")
 
   #Get riots in previous time period
-  riots <- df %>% 
+  riots <- df_main %>% 
     st_drop_geometry() %>% 
     filter(!is.na(name_riot)) %>% distinct(GRID_ID, year) %>% 
     filter(year >= year_c-9 & year <= year_c-5) %>% 
     pull(GRID_ID)
   
     #Get riots in that time period
-  riots_cur <- df %>% 
+  riots_cur <- df_main %>% 
     st_drop_geometry() %>% 
     filter(!is.na(name_riot)) %>% distinct(GRID_ID, year) %>% 
     filter(year >= year_c-4 & year <= year_c) %>% 
     pull(GRID_ID)
   
   #Get significant increases in that time period
-  IDS_rise <- df_changes_sum %>% 
+  IDS_rise <- df_changes %>% 
     filter(type == glue("rise_{var}"),year_5 == year_c) %>% 
     distinct(GRID_ID) %>% 
     pull()
   
-  IDS_decline <- df_changes_sum %>% 
+  IDS_decline <- df_changes %>% 
     filter(type == glue("decline_{var}"),year_5 == year_c) %>% 
     distinct(GRID_ID) %>% 
     pull()
   
   
-  #Filter data to those IDS
+  #PRINT GRID IDS WITH NOTABLE CHANGES 
   
-  df_plot <- df %>% 
+  df_changes_print <- df_changes %>%  
+    filter((type == glue("rise_{var}") | type == glue("decline_{var}")) & year_5 == year_c) 
+  
+  df_changes_print %>% 
+    print()
+
+  #Filter data to those IDS
+  df_plot <- df_main %>% 
     filter(year == year_c) %>%
     mutate(flag_rise = ifelse(GRID_ID %in% IDS_rise,  "Notable Rise", NA), 
            flag_decline = ifelse(GRID_ID %in% IDS_decline , "Notable Decline", NA), 
@@ -222,9 +214,7 @@ plot_rise <- function(year_c, var) {
     filter(!is.na(flag)) %>% 
     mutate(bk_res_4_cat = ifelse(is.na(bk_res_4_cat), "No Change", bk_res_4_cat))
   
-  
-  df_plot %>% st_drop_geometry() %>% distinct(flag)
-  
+
     #Labels
   
    plot_colors <- setNames(c( 
@@ -361,21 +351,13 @@ plot_rise <- function(year_c, var) {
   
   plot_colors <- plot_colors[df_plot %>% distinct(flag) %>% pull()]
   
-  plot_colors_lines <- setNames(c( "#e5ff4c", "#ff7f00","#836FFF",
-                                  "white"),
-                                c("Any Increase From 1% or More to More than 90%",
-                                  "Significant Increase From 1% or More to Less than 90%",
-                                  "Any Increase From Less Than 1%", "No Change"))
-
-
-  plot_colors_lines <- plot_colors_lines[df_plot %>% distinct(bk_res_4_cat)  %>% pull()]
-
 
   g <- ggplot(data = df_plot) +
       geom_sf(aes(fill = flag)) +
       theme_minimal() + 
       labs(title =  glue("Change in {title_piece} Between {year_c - 9}-{year_c - 5} and {year_c - 4}-{year_c}"), 
-           subtitle = glue("Intersection with Black Residency & Riots in {year_c - 9}-{year_c-5} & {year_c - 4}-{year_c}\n\n\n ")) + 
+           subtitle = glue("Intersection with Black Residency & Riots in {year_c - 9}-{year_c-5} & {year_c - 4}-{year_c}\n "), 
+           fill = "") + 
       scale_fill_manual(values = plot_colors) +
       theme(legend.key.size = unit(0.4, 'cm')) +
       theme(legend.title = element_text(size = 9), 
@@ -423,6 +405,27 @@ plot_rise(1955, "hom_rt_mean_5")
 #plot_rise(1965, "hom_rt_mean_5")
 
 ```
+
+
+```{r}
+
+print_id <- function(id_list, df_main =df){
+  
+  df_plot <- df_main %>% 
+    filter(year == 1950) %>% 
+    mutate(flag = ifelse(GRID_ID %in% id_list, GRID_ID, NA)) 
+  
+  ggplot(data = df_plot) + 
+    geom_sf(aes(fill = flag)) + 
+    scale_fill_discrete(na.value = "grey")
+  
+}
+
+
+print_id(c("AK-23", "AN-22", "AJ-19", "AD-15","AH-13", "AJ-20"))
+```
+
+
 
 # Select Years of Highway Construction
 
@@ -882,7 +885,7 @@ for (year_select in years) {
 ```
 
 
-### Percentage Changes 
+## Percentage Changes 
 
 
 ```{r, echo=FALSE}
@@ -896,21 +899,15 @@ df_changes <- df %>%
   ungroup() 
 
 
-decline_sum_ct <- change_calc("hom_ct_sum_5", decline = T) 
-
-decline_mean_ct <- change_calc("hom_ct_mean_5", decline = T)
-
-decline_mean_rt <- change_calc( "hom_rt_mean_5", decline = T)
+decline_sum_ct <- change_calc("hom_ct_sum_5", rank = 0.2, decline = T) 
+decline_mean_rt <- change_calc( "hom_rt_mean_5", rank = 0.2, decline = T)
   
 
-rise_sum_ct <- change_calc("hom_ct_sum_5", decline = F) 
-
-rise_mean_ct <- change_calc("hom_ct_mean_5", decline = F)
-
-rise_mean_rt <- change_calc("hom_rt_mean_5", decline = F)
+rise_sum_ct <- change_calc("hom_ct_sum_5", rank = 0.2, decline = F) 
+rise_mean_rt <- change_calc("hom_rt_mean_5", rank = 0.2, decline = F)
 
 
-df_changes_sum <- rbind(decline_sum_ct, decline_mean_ct, decline_mean_rt, rise_sum_ct, rise_mean_ct, rise_mean_rt)
+df_changes_sum_perc <- rbind(decline_sum_ct,decline_mean_rt, rise_sum_ct,rise_mean_rt)
 
 ```
 
@@ -920,9 +917,9 @@ df_changes_sum <- rbind(decline_sum_ct, decline_mean_ct, decline_mean_rt, rise_s
 
 
 
-plot_rise(1950, "hom_ct_sum_5")
+plot_rise(1950, "hom_ct_sum_5", df_changes = df_changes_sum_perc)
 
-plot_rise(1955, "hom_ct_sum_5")
+plot_rise(1955, "hom_ct_sum_5",  df_changes = df_changes_sum_perc)
 
 #plot_rise(1960, "hom_ct_sum_5")
 
@@ -930,9 +927,9 @@ plot_rise(1955, "hom_ct_sum_5")
 
 
 
-plot_rise(1950, "hom_rt_mean_5")
+plot_rise(1950, "hom_rt_mean_5",  df_changes = df_changes_sum_perc)
 
-plot_rise(1955, "hom_rt_mean_5")
+plot_rise(1955, "hom_rt_mean_5",  df_changes = df_changes_sum_perc)
 
 #plot_rise(1960, "hom_rt_mean_5")
 
@@ -976,6 +973,40 @@ output %>%
 ```
 
 ## Testing 
+
+
+
+```{r}
+
+var <- "hom_ct_sum_5"
+
+df_changes["change"] <- df_changes[var]
+  
+df_changes <- df_changes %>% 
+  distinct(GRID_ID, year_5, change) 
+  
+  if (decline) {
+    df_changes_test_decl<- df_changes %>%  
+      filter(change < 0) %>% 
+      arrange(change) %>% 
+      group_by(year_5) %>% 
+      mutate(pctile = percent_rank(desc(change))) %>%
+      mutate(type = glue("decline_{var}")) 
+  } else {
+    df_changes_test_rise <- df_changes %>%
+      filter(change > 0) %>% 
+      arrange(desc(change))%>% 
+      group_by(year_5)%>% 
+      mutate(pctile = percent_rank(change)) %>%
+      mutate(type = glue("rise_{var}")) 
+    
+  }
+  
+  df <- df %>% 
+    ungroup() %>% 
+    filter(pctile > rank) 
+
+```
 
 
 ### Testing Black Residency Values
