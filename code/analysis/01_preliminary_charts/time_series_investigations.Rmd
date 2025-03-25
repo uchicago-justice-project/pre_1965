@@ -407,7 +407,7 @@ plot_rise(1955, "hom_rt_mean_5")
 ```
 
 
-```{r}
+```{r, echo = FALSE}
 
 print_id <- function(id_list, df_main =df){
   
@@ -422,9 +422,35 @@ print_id <- function(id_list, df_main =df){
 }
 
 
-print_id(c("AK-23", "AN-22", "AJ-19", "AD-15","AH-13", "AJ-20"))
+#print_id(c("AK-23", "AN-22", "AJ-19", "AD-15","AH-13", "AJ-20"))
+
+
 ```
 
+
+
+# Gaps in Homicides 
+
+
+```{r, echo = FALSE}
+
+gap_outliers <- read_csv("data/raw/waves/gap_outliers.csv", show_col_types = FALSE, progress  = FALSE) %>% 
+  dplyr::select(GRID_ID, year, last_wave_end, longest_gap) %>% 
+  filter(year > last_wave_end & year <= last_wave_end + longest_gap)
+
+gap_outliers %>% 
+  filter(year >= 1940 & year <= 1955) 
+
+outliers_geom <- df %>% 
+  dplyr::select(GRID_ID, year) %>% 
+  inner_join(gap_outliers, by = c("GRID_ID", "year")) 
+
+#increases_count_rate <- read_csv("data/raw/waves/increases_count_rate.csv", show_col_types = FALSE, progress  = FALSE)
+
+
+#print_id(c("AB-10"))
+
+```
 
 
 # Select Years of Highway Construction
@@ -462,11 +488,6 @@ streets %>%
   distinct(DEDICATED_, begin, open) %>% 
   arrange(begin)
 
-df %>% 
-  st_drop_geometry() %>% 
-  filter(!is.na(name_riot)) %>% 
-  dplyr::select(contains("riot"))
-  
 
 ````
 
@@ -517,13 +538,19 @@ g <- ggplot() +
 
 years <- seq(1940, 1960, 1)
 
+year_select <- 1950
 for (year_select in years) {
+  
+  outliers_plot <- outliers_geom %>% 
+    filter(year == year_select)
+  
   
   g <- ggplot() +
     geom_sf(data = df %>% filter(year == year_select), 
             aes(fill = hom_ct)) +
     geom_sf(data = streets_select, aes(color = paste0(DEDICATED_, ", Construction Estimated ", begin, 
                                                       "\nOpening Date ", open))) + 
+    geom_sf(data = outliers_plot, alpha = 0.4, fill = "red") +
     theme_minimal() +
     labs(title = glue("Number of Homicides {year_select}"), 
          fill = "Total Number of Homicides", color = "Highway") +
@@ -616,11 +643,16 @@ years <- seq(1950, 1970, 1)
 
 for (year_select in years) {
   
+    outliers_plot <- outliers_geom %>% 
+    filter(year == year_select)
+  
+  
   g <- ggplot() +
     geom_sf(data = df %>% filter(year == year_select), 
             aes(fill = hom_ct)) +
     geom_sf(data = streets_select, aes(color = paste0(DEDICATED_, ", Construction Estimated ", begin, 
                                                       "\nOpening Date ", open))) + 
+    geom_sf(data = outliers_plot, alpha = 0.4, fill = "red") +
     theme_minimal() +
     labs(title = glue("Number of Homicides {year_select} \n\n "), 
          fill = "Total Number of Homicides", color = "Highway") +
@@ -638,6 +670,16 @@ for (year_select in years) {
 ```
 
 ## Riots 
+
+```{r, echo = FALSE}
+df %>% 
+  st_drop_geometry() %>% 
+  filter(!is.na(name_riot)) %>% 
+  dplyr::select(contains("riot"))
+  
+
+
+```
 
 Intends to investigate homicide patterns around areas where riot takes place.
 
@@ -978,33 +1020,33 @@ output %>%
 
 ```{r}
 
-var <- "hom_ct_sum_5"
-
-df_changes["change"] <- df_changes[var]
-  
-df_changes <- df_changes %>% 
-  distinct(GRID_ID, year_5, change) 
-  
-  if (decline) {
-    df_changes_test_decl<- df_changes %>%  
-      filter(change < 0) %>% 
-      arrange(change) %>% 
-      group_by(year_5) %>% 
-      mutate(pctile = percent_rank(desc(change))) %>%
-      mutate(type = glue("decline_{var}")) 
-  } else {
-    df_changes_test_rise <- df_changes %>%
-      filter(change > 0) %>% 
-      arrange(desc(change))%>% 
-      group_by(year_5)%>% 
-      mutate(pctile = percent_rank(change)) %>%
-      mutate(type = glue("rise_{var}")) 
-    
-  }
-  
-  df <- df %>% 
-    ungroup() %>% 
-    filter(pctile > rank) 
+# var <- "hom_ct_sum_5"
+# 
+# df_changes["change"] <- df_changes[var]
+#   
+# df_changes <- df_changes %>% 
+#   distinct(GRID_ID, year_5, change) 
+#   
+#   if (decline) {
+#     df_changes_test_decl<- df_changes %>%  
+#       filter(change < 0) %>% 
+#       arrange(change) %>% 
+#       group_by(year_5) %>% 
+#       mutate(pctile = percent_rank(desc(change))) %>%
+#       mutate(type = glue("decline_{var}")) 
+#   } else {
+#     df_changes_test_rise <- df_changes %>%
+#       filter(change > 0) %>% 
+#       arrange(desc(change))%>% 
+#       group_by(year_5)%>% 
+#       mutate(pctile = percent_rank(change)) %>%
+#       mutate(type = glue("rise_{var}")) 
+#     
+#   }
+#   
+#   df <- df %>% 
+#     ungroup() %>% 
+#     filter(pctile > rank) 
 
 ```
 
