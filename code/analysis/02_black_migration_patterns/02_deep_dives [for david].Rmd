@@ -1,0 +1,535 @@
+---
+title: "Regressions"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r Set Up, include = FALSE}
+rm(list = ls())
+source("header.R")
+library(fixest)
+library(modelsummary)
+
+#Homicides 
+hex <- st_read("data/intermediate/homicide_hexagons/survivorship")%>% 
+  mutate(year = as.integer(year))
+
+#Highways
+streets <- st_read("data/intermediate/highways.gpkg")
+streets <- st_transform(streets, st_crs(hex))
+
+
+yearly_panel <- read_csv("data/raw/yearly_panel_dataset.csv")
+
+yearly_panel <- hex %>% 
+  dplyr::select(GRID_ID, year) %>% 
+  left_join(yearly_panel, by = c("GRID_ID", "year")) %>% 
+  mutate(year = as.integer(year))
+
+
+```
+
+
+# Regression Data
+
+
+Distance from Eisenhower
+```{r}
+highway <- streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+
+#Create distances from highway 
+buffer_distance <- 0.1*5280  
+highway_buffer_tenthtmile <- st_buffer(highway, dist = buffer_distance)
+buffer_distance <- 0.25*5280  
+highway_buffer_quartmile <- st_buffer(highway, dist = buffer_distance)
+buffer_distance <- 0.5*5280  
+highway_buffer_halfmile <- st_buffer(highway, dist = buffer_distance)
+buffer_distance <- 1*5280  
+highway_buffer_1mile <- st_buffer(highway, dist = buffer_distance)
+
+
+#Intersect with polygons
+polygons_tenthmile_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_tenthtmile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+polygons_quartmile_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_quartmile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+polygons_halfmile_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_halfmile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+polygons_1_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_1mile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+
+#Create flags in data 
+reg_data <- yearly_panel %>% 
+  filter(year >= 1940 & year <= 1960) %>% 
+  mutate(flag_tenthmile_hway = 
+           ifelse(GRID_ID %in% c(polygons_tenthmile_highway$GRID_ID), 1, 0), 
+         flag_quartmile_hway = 
+           ifelse(GRID_ID %in% c(polygons_quartmile_highway$GRID_ID), 1, 0),
+         flag_halfmile_hway = 
+           ifelse(GRID_ID %in% c(polygons_halfmile_highway$GRID_ID), 1, 0), 
+         flag_1mile_hway = 
+           ifelse(GRID_ID %in% c(polygons_1_highway$GRID_ID), 1, 0)) %>% 
+  mutate(flag_cat = case_when(flag_tenthmile_hway == 1 ~ "0.1 mile", 
+                              flag_quartmile_hway == 1 ~ "0.25 mile", 
+                              flag_halfmile_hway == 1 ~ "0.5 mile", 
+                              flag_1mile_hway == 1 ~ "1 mile",
+                              TRUE ~ "> 1 mile")) %>% 
+  mutate(flag_constr = ifelse(year > 1949, 1, 0)) 
+
+
+black_50 <- yearly_panel %>%
+  st_drop_geometry() %>% 
+  filter(year == 1950) %>% 
+  mutate(flag_black_30 = ifelse(share_black > 0.3, 1, 0), 
+         flag_black_50 = ifelse(share_black > 0.5, 1, 0), 
+         flag_black_70 = ifelse(share_black > 0.7, 1, 0)) %>% 
+  dplyr::select(GRID_ID, flag_black_30, flag_black_50, flag_black_70)
+
+
+reg_data <- reg_data %>% 
+  left_join(black_50)
+
+```
+
+Distance from Dan Ryan: 
+
+```{r}
+highway <- streets %>% filter(str_detect(DEDICATED_, "DAN RYAN EXPY"))
+
+#Create distances from highway 
+buffer_distance <- 0.1*5280  
+highway_buffer_tenthtmile <- st_buffer(highway, dist = buffer_distance)
+buffer_distance <- 0.25*5280  
+highway_buffer_quartmile <- st_buffer(highway, dist = buffer_distance)
+buffer_distance <- 0.5*5280  
+highway_buffer_halfmile <- st_buffer(highway, dist = buffer_distance)
+buffer_distance <- 1*5280  
+highway_buffer_1mile <- st_buffer(highway, dist = buffer_distance)
+
+
+#Intersect with polygons
+polygons_tenthmile_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_tenthtmile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+polygons_quartmile_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_quartmile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+polygons_halfmile_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_halfmile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+polygons_1_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_1mile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+
+#Create flags in data 
+reg_data <- reg_data %>% 
+  mutate(flag_tenthmile_hway_danry = 
+           ifelse(GRID_ID %in% c(polygons_tenthmile_highway$GRID_ID), 1, 0), 
+         flag_quartmile_hway_danry = 
+           ifelse(GRID_ID %in% c(polygons_quartmile_highway$GRID_ID), 1, 0),
+         flag_halfmile_hway_danry = 
+           ifelse(GRID_ID %in% c(polygons_halfmile_highway$GRID_ID), 1, 0), 
+         flag_1mile_hway_danry = 
+           ifelse(GRID_ID %in% c(polygons_1_highway$GRID_ID), 1, 0)) %>% 
+  mutate(flag_cat_danry = case_when(flag_tenthmile_hway_danry == 1 ~ "0.1 mile", 
+                              flag_quartmile_hway_danry == 1 ~ "0.25 mile", 
+                              flag_halfmile_hway_danry == 1 ~ "0.5 mile", 
+                              flag_1mile_hway_danry == 1 ~ "1 mile",
+                              TRUE ~ "> 1 mile"))
+
+```
+
+```{r, echo = FALSE}
+ggplot() + 
+  geom_sf(data = reg_data %>% filter(year == 1950),  
+          aes(fill = flag_black_30, 
+              color = flag_cat), linewidth = 1.5) + 
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "DAN RYAN EXPY"))) +
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.8, 41.94))   + 
+  labs(title = "Eisenhower & Dan Ryan Expressways & Polygons Within 1 Mile of Eisenhower")
+
+
+ggplot() + 
+  geom_sf(data = reg_data %>% filter(year == 1950),  
+          aes(fill = flag_black_50, 
+              color = flag_cat_danry), linewidth = 1.5) + 
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "DAN RYAN EXPY"))) +
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.8, 41.94))   + 
+  labs(title = "Eisenhower & Dan Ryan Expressways & Polygons Within 1 Mile of Dan Ryan")
+
+
+```
+
+## Parallel Trends
+
+
+### Chicago 
+Poisson parallel trends test, 1/10 mile vs Chicago: 
+```{r, echo = FALSE}
+
+ev <- feglm(
+    homicides ~ i(year, flag_tenthmile_hway, ref=1949) | GRID_ID + year 
+    , data=reg_data 
+    , family = "poisson"
+  )
+
+summary(ev)
+iplot(ev)
+
+```
+
+Poisson parallel trends test, 1/10 mile vs Chicago for Black Residency > 50%: 
+```{r, echo = FALSE}
+
+ev <- feglm(
+    homicides ~ i(year, flag_tenthmile_hway, ref=1949) | GRID_ID + year 
+    , data=reg_data %>% filter( flag_black_50 == 1)
+    , family = "poisson"
+  )
+
+summary(ev)
+iplot(ev)
+
+```
+
+### 1 Mile from Eisenhower: 
+
+Poisson parallel trends test, 1/10 mile vs 1 mile from Eisenhower: 
+```{r, echo = FALSE}
+
+ev <- feglm(
+    homicides ~ i(year, flag_tenthmile_hway, ref=1949) | GRID_ID + year 
+    , data=reg_data %>% filter(flag_1mile_hway == 1)
+    , family = "poisson"
+  )
+
+summary(ev)
+iplot(ev)
+
+```
+
+Poisson parallel trends test, 1/10 mile vs 1 mile from Eisenhower for Black Residency > 50%: 
+```{r, echo = FALSE}
+
+ev <- feglm(
+    homicides ~ i(year, flag_tenthmile_hway, ref=1949) | GRID_ID + year 
+    , data=reg_data %>% filter(flag_1mile_hway == 1 & flag_black_50 == 1)
+    , family = "poisson"
+  )
+
+summary(ev)
+iplot(ev)
+
+```
+
+### Hexagons near Eisenhower and Dan Ryan: 
+
+Poisson parallel trends test, 1/10 mile vs 1 mile Eisenhower & 1 mile Dan Ryan : 
+```{r, echo = FALSE}
+
+ev <- feglm(
+    homicides ~ i(year, flag_tenthmile_hway, ref=1949) | GRID_ID + year 
+    , data=reg_data %>% filter(flag_1mile_hway == 1 | flag_1mile_hway_danry == 1 )
+    , family = "poisson"
+  )
+
+summary(ev)
+iplot(ev)
+
+```
+
+### Hexagons near Eisenhower and Dan Ryan with > 50% Black Residency in 1950:
+
+
+Poisson parallel trends test, 1/10 mile vs 1 mile Eisenhower & 1 mile Dan Ryan all Black Residency > 50%: 
+
+
+```{r, echo = FALSE}
+
+ev <- feglm(
+    homicides ~ i(year, flag_tenthmile_hway, ref=1949) | GRID_ID + year 
+    , data=reg_data %>% filter((flag_1mile_hway == 1 | flag_1mile_hway_danry == 1) & flag_black_50 == 1)
+    , family = "poisson"
+  )
+
+summary(ev)
+iplot(ev)
+
+```
+
+Poisson parallel trends test, 1/10 mile vs 1 mile Eisenhower & 1 mile Dan Ryan all Black Residency > 30%: 
+```{r, echo = FALSE}
+
+ev <- feglm(
+    homicides ~ i(year, flag_tenthmile_hway, ref=1949) | GRID_ID + year 
+    , data=reg_data %>% filter((flag_1mile_hway == 1 | flag_1mile_hway_danry == 1) & flag_black_30 == 1)
+    , family = "poisson"
+  )
+
+summary(ev)
+iplot(ev)
+
+```
+
+
+### Homicides over the years
+
+Based on the above parallel trend tests, I want to check out what might be going on in 1940 & 41 and more importantly 1946. 
+
+First, looking at the area surrounding Eisenhower and Dan Ryan, we can see that 
+a) the homicide trends look very similar, and 
+b) most of the homicides for high black residency areas happen in these two areas 
+
+```{r}
+for_plot <- reg_data %>% 
+  filter(flag_black_30 == 1) %>%
+  mutate(category = case_when(flag_1mile_hway == 1 ~ "1 Mile Eisenhower", 
+                              flag_1mile_hway_danry == 1 ~ "1 Mile Dan Ryan", 
+                              flag_1mile_hway == 0 &  flag_1mile_hway_danry == 0 ~ "Rest of Chicago")) %>% 
+  group_by(category, year) %>% 
+  summarise(homicides = sum(homicides)) %>% 
+  ungroup()
+
+ggplot(data = for_plot, aes(x = year, y = homicides)) + 
+  geom_line(aes(color = category)) + 
+  labs(title = "1 Mile Eisenhower vs 1 Mile Dan Ryan (excl Eisenhower) vs Chicago"
+       , subtitle = "Black Residency > 50%") + 
+  geom_vline(xintercept = 1949)
+```
+
+
+When we actually look at the area in close proximity to both highways (1/10 of a mile), there are some interesting differences: 
+a) the number of homicides immediately surrounding the highway is much lower for the Eisenhower. Need to look into if there are any geographic differences here that might explain this. Maybe we are not comparing apples to apples here. 
+b) since the number of homicides is so low near the Eisenhower, those slight increases in 41, 42, and 46 seem to matter much more. 
+
+Conclusion: need to look into how to make the two areas more comparable. We may not want to use 1/10 mile distance for each group. 
+
+```{r}
+for_plot <- reg_data %>% 
+  filter(flag_black_50 == 1 & (flag_tenthmile_hway_danry == 1 | flag_tenthmile_hway ==1   )) %>%
+  mutate(category = case_when(flag_tenthmile_hway == 1 ~ "1/10 Mile Eisenhower", 
+                              flag_tenthmile_hway_danry == 1 ~ "1/10 Mile Dan Ryan")) %>% 
+  group_by(category, year) %>% 
+  summarise(homicides = sum(homicides)) %>% 
+  ungroup()
+
+ggplot(data = for_plot, aes(x = year, y = homicides)) + 
+  geom_line(aes(color = category)) + 
+  labs(title = "1/10 Mile Eisenhower vs 1/10 Mile Dan Ryan (excl Eisenhower) vs Chicago"
+       , subtitle = "Black Residency > 50%") + 
+  geom_vline(xintercept = 1949)
+```
+
+Reducing the flag to 30% helps a little but not much:
+```{r}
+for_plot <- reg_data %>% 
+  filter(flag_black_30 == 1 & (flag_tenthmile_hway_danry == 1 | flag_tenthmile_hway ==1   )) %>%
+  mutate(category = case_when(flag_tenthmile_hway == 1 ~ "1/10 Mile Eisenhower", 
+                              flag_tenthmile_hway_danry == 1 ~ "1/10 Mile Dan Ryan")) %>% 
+  group_by(category, year) %>% 
+  summarise(homicides = sum(homicides)) %>% 
+  ungroup()
+
+ggplot(data = for_plot, aes(x = year, y = homicides)) + 
+  geom_line(aes(color = category)) + 
+  labs(title = "1/10 Mile Eisenhower vs 1/10 Mile Dan Ryan (excl Eisenhower) vs Chicago"
+       , subtitle = "Black Residency > 30%") + 
+  geom_vline(xintercept = 1949)
+```
+
+## Regressions
+
+Poisson version, all controls, 1/10 mile vs all of Chicago:
+```{r}
+
+reg_fe_chicago_no_controls <- feglm(homicides ~ flag_constr * flag_tenthmile_hway * flag_black_50
+              | GRID_ID + year
+              , data = reg_data 
+              , family = "poisson"
+              )
+
+reg_fe_chicago_all <- feglm(homicides ~ flag_constr * flag_tenthmile_hway 
+                + share_white +  share_foreign 
+                 + share_unemployed + share_college_grad 
+                + has_housing + share_vacant_homes 
+                 + log(total_pop)
+              | GRID_ID + year
+              , data = reg_data 
+              , family = "poisson"
+              )
+reg_fe_chicago_share_50 <- feglm(homicides ~ flag_constr * flag_tenthmile_hway * flag_black_50
+                + share_white +  share_foreign 
+                 + share_unemployed + share_college_grad 
+                + has_housing  + share_vacant_homes 
+                 + log(total_pop)
+              | GRID_ID + year
+              , data = reg_data 
+              , family = "poisson"
+              )
+
+
+```
+
+Poisson version, all controls, 1/10 mile vs 1 mile from Eisenhower & 1 mile from Dan Ryan:
+```{r}
+
+
+reg_fe_danry_no_controls <- feglm(homicides ~ flag_constr * flag_tenthmile_hway* flag_black_50
+              | GRID_ID + year
+              , data = reg_data %>% filter(flag_1mile_hway == 1 | flag_1mile_hway_danry == 1 )
+              , family = "poisson"
+              )
+
+reg_fe_danry_all <- feglm(homicides ~ flag_constr * flag_tenthmile_hway
+                + share_white +  share_foreign 
+                 + share_unemployed + share_college_grad 
+                + has_housing + share_vacant_homes 
+                 + log(total_pop)
+              | GRID_ID + year
+              , data = reg_data %>% filter(flag_1mile_hway == 1 | flag_1mile_hway_danry == 1 )
+              , family = "poisson"
+              )
+
+reg_fe_danry <- feglm(homicides ~ flag_constr * flag_tenthmile_hway * flag_black_50
+                + share_white +  share_foreign 
+                 + share_unemployed + share_college_grad 
+                + has_housing + share_vacant_homes 
+                 + log(total_pop)
+              | GRID_ID + year
+              , data = reg_data %>% filter(flag_1mile_hway == 1 | flag_1mile_hway_danry == 1 )
+              , family = "poisson"
+              )
+
+
+```
+Poisson version, all controls, 1/10 mile vs 1/10 mile fromDan Ryan:
+```{r}
+
+
+reg_fe_tenth_danry_no_controls <- feglm(homicides ~ flag_constr * flag_tenthmile_hway* flag_black_50
+              | GRID_ID + year
+              , data = reg_data %>% filter(flag_tenthmile_hway == 1 | flag_tenthmile_hway_danry == 1 )
+              , family = "poisson"
+              )
+
+reg_fe_tenth_danry_all <- feglm(homicides ~ flag_constr * flag_tenthmile_hway
+                + share_white +  share_foreign 
+                 + share_unemployed + share_college_grad 
+                + has_housing + share_vacant_homes 
+                 + log(total_pop)
+              | GRID_ID + year
+              , data = reg_data %>% filter(flag_tenthmile_hway == 1 | flag_tenthmile_hway_danry == 1 )
+              , family = "poisson"
+              )
+
+reg_fe_tenth_danry <- feglm(homicides ~ flag_constr * flag_tenthmile_hway * flag_black_50
+                + share_white +  share_foreign 
+                 + share_unemployed + share_college_grad 
+                + has_housing + share_vacant_homes 
+                 + log(total_pop)
+              | GRID_ID + year
+              , data = reg_data %>% filter(flag_tenthmile_hway == 1 | flag_tenthmile_hway_danry == 1 )
+              , family = "poisson"
+              )
+
+
+```
+
+
+Poisson version, all controls, 1/10 mile vs 1 mile from Eisenhower:
+```{r}
+
+reg_fe_eis_no_controls <- feglm(homicides ~ flag_constr * flag_tenthmile_hway* flag_black_50
+              | GRID_ID + year
+              , data = reg_data %>% filter(flag_1mile_hway == 1)
+              , family = "poisson"
+              )
+
+
+reg_fe_eis_all <- feglm(homicides ~ flag_constr * flag_tenthmile_hway
+                + share_white +  share_foreign + 
+                  share_unemployed + share_college_grad 
+                + has_housing + share_vacant_homes
+                 + log(total_pop)
+              | GRID_ID + year
+              , data = reg_data %>% filter(flag_1mile_hway == 1)
+              , family = "poisson"
+              )
+
+reg_fe_eis <- feglm(homicides ~ flag_constr * flag_tenthmile_hway * flag_black_50
+                + share_white +  share_foreign + 
+                  share_unemployed + share_college_grad 
+                + has_housing + share_vacant_homes
+                 + log(total_pop)
+              | GRID_ID + year
+              , data = reg_data %>% filter(flag_1mile_hway == 1)
+              , family = "poisson"
+              )
+
+
+```
+
+
+
+```{r}
+
+modelsummary(list("Chicago" = reg_fe_chicago_no_controls, 
+                  "Chicago" = reg_fe_chicago_all, 
+                  "Chicago"= reg_fe_chicago_share_50, 
+                  "1 mile from Eisenhower & Dan Ryan" = reg_fe_danry_no_controls, 
+                  "1 mile from Eisenhower & Dan Ryan" = reg_fe_danry_all, 
+                  "1 mile from Eisenhower & Dan Ryan" = reg_fe_danry, 
+                  "1/10 mile from Dan Ryan" = reg_fe_tenth_danry_no_controls, 
+                  "1/10 mile from Dan Ryan" = reg_fe_tenth_danry_all, 
+                  "1/10 mile from Dan Ryan" = reg_fe_tenth_danry, 
+                   "1 mile from Eisenhower" = reg_fe_eis_no_controls, 
+                  "1 mile from Eisenhower" = reg_fe_eis_all, 
+                 "1 mile from Eisenhower" = reg_fe_eis ), stars = TRUE)
+
+
+```

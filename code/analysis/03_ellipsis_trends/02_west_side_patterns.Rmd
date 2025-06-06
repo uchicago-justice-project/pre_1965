@@ -1,0 +1,897 @@
+---
+title: "02_west_side_patterns"
+output: html_document
+---
+
+
+
+```{r Set Up, include = FALSE}
+rm(list = ls())
+source("header.R")
+library(geosphere)
+library(lubridate)
+library(tidygeocoder)
+library(mapview)
+library(mapedit)
+
+# HOMICIDES 
+
+  ## Pre 65 
+homs <- st_read("data/raw/homicides_1940-1965_geocoded_v3") %>% 
+  mutate(year = as.integer(year)) %>%
+  mutate(category_clean = case_when(str_detect(tolower(cod), "police") ~ "Police Killing",
+                                    str_detect(tolower(cod), "gun") |  str_detect(tolower(cod), "shot") 
+                                    |  str_detect(tolower(cod), "bullet") ~ "Gunshot", 
+                                    str_detect(tolower(cod), "stab") | str_detect(tolower(cod), "cut") ~ "Knife", 
+                                   TRUE ~ "Other"), 
+         date_clean = as_date(date), 
+         category = paste0(tolower(cod), ": ", format(date_clean, "%m/%d"))) %>% 
+  filter(!st_is_empty(geometry)) %>% 
+  filter(!str_detect(category, "burn"))%>% 
+  filter(!str_detect(category, "overdose"))%>% 
+  filter(!str_detect(category, "abortion"))%>% 
+  filter(!str_detect(category, "fire"))
+
+homs_clean <- homs %>% 
+  dplyr::select(year, category)
+
+grid <- st_read("data/raw/Fishnet_InsideChicago_150m")
+
+post_65 <- read_csv("data/raw/IndividualHomicides_1965_2022.csv") %>%
+  filter(!is.na(X_MetCent) & !is.na(Y_MetCent))
+post_65 <- st_as_sf(post_65, coords = c("X_MetCent", "Y_MetCent"), crs = st_crs(grid))
+post_65 <- st_transform(post_65, crs = st_crs(homs))
+
+post_65_clean <- post_65 %>%
+  dplyr::select(year) %>%
+  mutate(category= "")
+
+census_40_tract <- st_read("data/raw/census/1940_census_tracts")
+census_40_tract <- st_transform(census_40_tract, crs = st_crs(homs))
+  ##combine 
+
+homs_all <- rbind(homs_clean, post_65_clean)
+#homs_all <- homs_clean
+
+
+#Other data 
+
+cha_projects <- read_sf("data/intermediate/housing_projects/cha_projects.geojson") %>% 
+  rename(bldst = yr_built_start, bldend = yr_built_end, dmlst = yr_dmlsh_or_cnvrt_start, dmlend = yr_dmlsh_or_cnvrt_end ) %>% 
+  mutate(label = paste0("HP:", bldst-1900, ifelse(!is.na(bldend), paste0("-", bldend-1900), "")))
+cha_projects <- st_transform(cha_projects, st_crs(homs))
+ ##Post 65
+
+riots <- read_sf("data/intermediate/racial_violence/riots.geojson") %>% 
+  mutate(name_clean = str_remove(name, " housing project") ,
+         label = paste0("Rt:", year))
+
+riots <- st_transform(riots, st_crs(homs))
+
+
+
+#Neighborhoods
+
+westside <- read_sf("data/intermediate/westside.geojson")
+westside <- st_transform(westside, st_crs(homs))
+
+nw1 <- read_sf("data/mst/neighborhoods/nw1.shp") %>% 
+  mutate(size = st_area(geometry)) %>% 
+  mutate(neighborhood = "nw1")
+nw2 <- read_sf("data/mst/neighborhoods/nw2.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "nw2")
+nc1 <- read_sf("data/mst/neighborhoods/nc1.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "nc1")
+ne1 <- read_sf("data/mst/neighborhoods/ne1.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "ne1")
+ne2 <- read_sf("data/mst/neighborhoods/ne2.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "ne2")
+ne3 <- read_sf("data/mst/neighborhoods/ne3.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "ne3")
+e1 <- read_sf("data/mst/neighborhoods/e1.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "e1")
+sw1 <- read_sf("data/mst/neighborhoods/sw1.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "sw1")
+sc1 <- read_sf("data/mst/neighborhoods/sc1.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "sc1")
+sc2 <- read_sf("data/mst/neighborhoods/sc2.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "sc2")
+sc3 <- read_sf("data/mst/neighborhoods/sc3.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "sc3")
+se1 <- read_sf("data/mst/neighborhoods/se1.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "se1")
+se2 <- read_sf("data/mst/neighborhoods/se2.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "se2")
+se3 <- read_sf("data/mst/neighborhoods/se3.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "se3")
+se4 <- read_sf("data/mst/neighborhoods/se4.shp")%>% 
+  mutate(size = st_area(geometry))%>% 
+  mutate(neighborhood = "se4")
+
+all_neighborhoods <- nw1 %>% 
+  union_all(nw2)%>% 
+  union_all(nc1)%>% 
+  union_all(ne1)%>% 
+  union_all(ne2)%>% 
+  union_all(ne3)%>% 
+  union_all(e1)%>% 
+  union_all(sw1)%>% 
+  union_all(sc1)%>% 
+  union_all(sc2)%>% 
+  union_all(sc3)%>% 
+  union_all(se1)%>% 
+  union_all(se2)%>% 
+  union_all(se3)%>% 
+  union_all(se4)
+
+# harrison_cermak <- read_sf("data/mst/neighborhoods/harrison_cermak.shp")
+# lower_south_west <- read_sf("data/mst/neighborhoods/lower_south_west.shp")
+# north_middle_eisenhower <- read_sf("data/mst/neighborhoods/north_middle_eis.shp")
+# upper_north_west <- read_sf("data/mst/neighborhoods/nortwest.shp")
+# upper_north_east <- read_sf("data/mst/neighborhoods/upper_north_east.shp")
+# south_west_eisenhower <- read_sf("data/mst/neighborhoods/southwest_roos.shp")
+
+
+```
+
+```{r}
+
+homs_west <- homs_all %>% 
+  st_join(westside, join = st_intersects, left = FALSE) %>%
+  arrange(year, category) %>% 
+  mutate(id = row_number())
+
+# census_clean  <- st_make_valid(census_40_tract)
+# westside_clean <- st_make_valid(westside)
+# 
+# census_tract_40_west <- st_filter(census_clean, westside_clean)
+  
+```
+```{r}
+sw1_homs <- homs_west %>% st_join(sw1, join = st_intersects, left = FALSE) %>% pull(id)
+sc1_homs <- homs_west %>% st_join(sc1, join = st_intersects, left = FALSE) %>% pull(id)
+sc2_homs <- homs_west %>% st_join(sc2, join = st_intersects, left = FALSE) %>% pull(id)
+sc3_homs <- homs_west %>% st_join(sc3, join = st_intersects, left = FALSE) %>% pull(id)
+se1_homs <- homs_west %>% st_join(se1, join = st_intersects, left = FALSE) %>% pull(id)
+se2_homs <- homs_west %>% st_join(se2, join = st_intersects, left = FALSE) %>% pull(id)
+se3_homs <- homs_west %>% st_join(se3, join = st_intersects, left = FALSE) %>% pull(id)
+se4_homs <- homs_west %>% st_join(se4, join = st_intersects, left = FALSE) %>% pull(id)
+e1_homs <- homs_west %>% st_join(e1, join = st_intersects, left = FALSE) %>% pull(id)
+nc1_homs <- homs_west %>% st_join(nc1, join = st_intersects, left = FALSE) %>% pull(id)
+ne1_homs <- homs_west %>% st_join(ne1, join = st_intersects, left = FALSE) %>% pull(id)
+ne2_homs <- homs_west %>% st_join(ne2, join = st_intersects, left = FALSE) %>% pull(id)
+ne3_homs <- homs_west %>% st_join(ne3, join = st_intersects, left = FALSE) %>% pull(id)
+nw1_homs <- homs_west %>% st_join(nw1, join = st_intersects, left = FALSE) %>% pull(id)
+nw2_homs <- homs_west %>% st_join(nw2, join = st_intersects, left = FALSE) %>% pull(id)
+
+homs_west <- homs_west %>% 
+  mutate(neighborhood = case_when(id %in% sw1_homs ~ "sw1", 
+                                  id %in% sc1_homs ~ "sc1", 
+                                  id %in% sc2_homs ~ "sc2", 
+                                  id %in% sc3_homs ~ "sc3", 
+                                  id %in% se1_homs ~ "se1", 
+                                  id %in% se2_homs ~ "se2", 
+                                  id %in% se3_homs ~ "se3",
+                                  id %in% se4_homs ~ "se4", 
+                                  id %in% e1_homs ~ "e1", 
+                                  id %in% nc1_homs ~ "nc1", 
+                                  id %in% ne1_homs ~ "ne1", 
+                                  id %in% ne2_homs ~ "ne2",
+                                  id %in% ne3_homs ~ "ne3", 
+                                  id %in% nw1_homs ~ "nw1", 
+                                  id %in% nw2_homs ~ "nw2", 
+                                  TRUE ~ "not categorized"))
+
+homs_neighborhood_count <- homs_west %>% 
+  st_drop_geometry() %>%
+  group_by(year, neighborhood) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  group_by(year) %>% 
+  mutate(total = sum(count)) %>% 
+  ungroup() %>% 
+  filter(neighborhood != "not categorized") %>% 
+  left_join(all_neighborhoods %>% st_drop_geometry())
+```
+```{r}
+
+# all_neighborhoods <- nw1 %>%
+# st_union(nw2) %>%
+# st_union(nc1)%>%
+# st_union(ne1)%>%
+# st_union(ne2)%>%
+# st_union(ne3)%>%
+# st_union(e1)%>%
+# st_union(sw1)%>%
+# st_union(sc1)%>%
+# st_union(sc2)%>%
+# st_union(sc3)%>%
+# st_union(se1)%>%
+# st_union(se2)%>%
+# st_union(se3)%>%
+# st_union(se4)
+# 
+# leaflet() %>%
+#   addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+#   addPolygons(data = all_neighborhoods,  opacity = 0)
+# 
+# test <- homs_west %>% 
+#   st_join(all_neighborhoods, join = st_intersects, left = TRUE) %>% 
+#   filter(is.na(ftr_typ))
+# 
+# 
+# leaflet() %>%
+#   addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+#   addPolygons(data = all_neighborhoods,  opacity = 0) %>% 
+#   addCircleMarkers(
+#     data        = test,
+#     radius      = 1,
+#     color       = "black",
+#     fillOpacity = 0.6,
+#     label       = ~as.character(year),
+#     labelOptions = labelOptions(
+#       direction = "auto",
+#       textsize  = "14px",
+#       opacity   = 0.9,
+#       offset    = c(4, -4)
+#     ))
+
+
+```
+
+
+#INDIVIDUAL MAPS
+
+```{r}
+
+
+# Set up the years to iterate through
+
+year <- 1955 
+center_westside  <- st_coordinates(st_centroid(westside))
+
+
+map_year <- function(year, data = homs_west, center = center_westside) {
+  
+  homs_year <- data %>% filter(year == !!year)
+  
+  nhoods <- unique(homs_year$neighborhood)
+
+  # Calculate standard deviation ellipse for the current year
+  sde_data <- std_dev_ellipse(homs_year)
+  sde <- st_ellipse(geometry = sde_data, sx = sde_data$sx, sy = sde_data$sy, rotation = -sde_data$theta) 
+
+  sde_sf <- st_sf(geometry = sde)%>% 
+    mutate(year = !!year)
+
+
+# Create leaflet map
+  map <- leaflet() %>%
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+  
+    # draw polygons first...
+    addPolygons(data = sde,    fillOpacity = 0.2, weight = 1) %>%
+    #addPolygons(data = census_tract_40_west, fillOpacity =  0,color = "black") %>% 
+    addPolygons(data = westside,  opacity = 0) %>%
+    addPolygons(data = nw1,  opacity = 0.1) %>%
+    addPolygons(data = nw2,  opacity = 0.1)%>%
+    addPolygons(data = nc1,  opacity = 0.1)%>%
+    addPolygons(data = ne1,  opacity = 0.1)%>%
+    addPolygons(data = ne2,  opacity = 0.1)%>%
+    addPolygons(data = ne3,  opacity = 0.1)%>%
+    addPolygons(data = e1,  opacity = 0.1)%>%
+    addPolygons(data = sw1,  opacity = 0.1)%>%
+    addPolygons(data = sc1,  opacity = 0.1)%>%
+    addPolygons(data = sc2,  opacity = 0.1)%>%
+    addPolygons(data = sc3,  opacity = 0.1)%>%
+    addPolygons(data = se1,  opacity = 0.1)%>%
+    addPolygons(data = se2,  opacity = 0.1)%>%
+    addPolygons(data = se3,  opacity = 0.1)%>%
+    addPolygons(data = se4,  opacity = 0.1)%>%
+    addCircleMarkers(
+      data        = cha_projects,
+      radius      = 1,
+      color       = "darkred",
+      fillOpacity = 0.6, 
+      label       = ~as.character(label),
+      labelOptions = labelOptions(
+        direction = "auto",
+        textsize  = "14px",
+        opacity   = 0.9,
+        offset    = c(4, -4)
+      )
+      ) %>%
+    addCircleMarkers(
+        data        = riots,
+        radius      = 1,
+        color       = "purple",
+        fillOpacity = 0.6, 
+        label       = ~as.character(label),
+        labelOptions = labelOptions(
+          direction = "auto",
+          textsize  = "14px",
+          opacity   = 0.9,
+          offset    = c(4, -4)
+        )
+        ) %>%
+    addControl(paste("Year:", year), position = "topright") %>% 
+    setView(lng = center[1], lat = center[2], zoom = 11.5) 
+  
+  
+  for(nb in nhoods) {
+    map <- map %>%
+      addCircleMarkers(
+        data = filter(homs_year, neighborhood == nb),
+        radius = 1,
+        fillOpacity = 0.7,
+        label = ~category,
+        group = nb,
+        clusterOptions = markerClusterOptions()
+      )
+  }
+
+   return(map)
+
+  # %>%
+  # 
+  # # …then draw circles on top
+  # addCircleMarkers(
+  #   data        = homs_year,
+  #   radius      = 1,
+  #   color       = "black",
+  #   fillOpacity = 0.6,
+  #   label       = ~as.character(category),
+  #   labelOptions = labelOptions(
+  #     direction = "auto",
+  #     textsize  = "14px",
+  #     opacity   = 0.9,
+  #     offset    = c(4, -4)
+  #   )
+  #   ,
+  #   clusterOptions = markerClusterOptions(
+  #     showCoverageOnHover = TRUE,
+  #     spiderfyOnMaxZoom   = TRUE,
+  #     zoomToBoundsOnClick = FALSE,
+  #     maxClusterRadius    = 50, 
+  #     disableClusteringAtZoom = 15
+  #   )
+  #   ) 
+
+  
+}
+
+
+```
+
+```{r}
+map_year(1940)
+map_year(1941)
+map_year(1942)
+map_year(1943)
+map_year(1944)
+map_year(1945)
+map_year(1946)
+map_year(1947)
+map_year(1948)
+map_year(1949)
+map_year(1950)
+map_year(1951)
+map_year(1952)
+map_year(1953)
+map_year(1954)
+map_year(1955)
+map_year(1956)
+map_year(1957)
+map_year(1958)
+map_year(1959)
+map_year(1960)
+map_year(1961)
+map_year(1962)
+map_year(1963)
+map_year(1964)
+map_year(1965)
+map_year(1966)
+map_year(1967)
+map_year(1968)
+map_year(1969)
+map_year(1970)
+map_year(1971)
+map_year(1972)
+map_year(1973)
+map_year(1974)
+map_year(1975)
+map_year(1976)
+map_year(1977)
+map_year(1978)
+map_year(1979)
+map_year(1980)
+map_year(1981)
+map_year(1982)
+map_year(1983)
+map_year(1984)
+map_year(1985)
+map_year(1986)
+map_year(1987)
+map_year(1988)
+map_year(1989)
+map_year(1990)
+```
+
+
+
+#SELECT NEIGHBORHOOD ANALYSIS
+
+
+```{r}
+
+
+ggplot(data = homs_neighborhood_count %>% filter(str_detect(neighborhood, "n"))
+       , aes(x= year, y = count, group = neighborhood))  +
+  geom_line(aes(color = neighborhood))+
+  labs(title = "Central Neighborhoods")
+
+ggplot(data = homs_neighborhood_count %>% filter(str_detect(neighborhood, "e"))
+       , aes(x= year, y = count, group = neighborhood))  +
+  geom_line(aes(color = neighborhood))+
+  labs(title = "East Neighborhoods")
+
+
+ggplot(data = homs_neighborhood_count %>% filter(str_detect(neighborhood, "w"))
+       , aes(x= year, y = count, group = neighborhood))  +
+  geom_line(aes(color = neighborhood))+
+  labs(title = "West Neighborhoods")
+
+
+ggplot(data = homs_neighborhood_count
+       , aes(x= year, y = count, group = neighborhood))  +
+  geom_line(aes(color = neighborhood))+
+  labs(title = "All Neighborhoods")
+
+
+```
+
+
+```{r}
+
+reg <- lm(count ~ as.factor(year) + size, data = homs_neighborhood_count)
+summary(reg)
+homs_neighborhood_count["residual"]  <- reg$residuals
+
+
+
+ggplot(data = homs_neighborhood_count %>% filter(str_detect(neighborhood, "c"))
+       , aes(x= year, y = residual, group = neighborhood))  + 
+  geom_line(aes(color = neighborhood)) +
+  labs(title = "Central Neighborhoods")
+
+
+ggplot(data = homs_neighborhood_count %>% filter(str_detect(neighborhood, "ne"))
+       , aes(x= year, y = residual, group = neighborhood))  + 
+  geom_line(aes(color = neighborhood))+
+  labs(title = "North-East Neighborhoods")
+
+
+ggplot(data = homs_neighborhood_count %>% filter(str_detect(neighborhood, "se"))
+       , aes(x= year, y = residual, group = neighborhood))  + 
+  geom_line(aes(color = neighborhood))+
+  labs(title = "South-East Neighborhoods")
+
+ggplot(data = homs_neighborhood_count %>% filter(str_detect(neighborhood, "w"))
+       , aes(x= year, y = residual, group = neighborhood))  + 
+  geom_line(aes(color = neighborhood))+
+  labs(title = "West Neighborhoods")
+
+ggplot(data = homs_neighborhood_count 
+       , aes(x= year, y = residual, group = neighborhood))  + 
+  geom_line(aes(color = neighborhood))+
+  labs(title = "All  Neighborhoods")
+```
+West neighborhoods seem to be rising by the 70s. We see a central spike in the 60s that continues for a while. Seems to die down in early 2000s but back on the rise. 
+
+SE3 might be interesting - in the late 70s and 80s we seem to be seeing some spikes while all other East neighborhoods are pretty consistently declining. 
+
+# GIFS
+## ENTIRE WESTSIDE
+
+```{r}
+
+# Set up the years to iterate through
+years <- 1940:2022
+
+year <- year[1]
+#even_years <- years[years %% 2 == 0]
+center  <- st_coordinates(st_centroid(westside))
+
+
+# Create and save a map for each year
+for (year in years) {
+  # Filter data for the current year
+  homs_year <- homs_west %>% filter(year == !!year)
+  nhoods <- unique(homs_year$neighborhood)
+  
+  # Calculate standard deviation ellipse for the current year
+  sde_data <- std_dev_ellipse(homs_year)
+  sde <- st_ellipse(geometry = sde_data, sx = sde_data$sx, sy = sde_data$sy, rotation = -sde_data$theta) 
+  
+  sde_sf <- st_sf(geometry = sde)%>% 
+    mutate(year = !!year)
+
+  
+  # Create leaflet map
+ map <- leaflet() %>%
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+    addPolygons(data = sde,    fillOpacity = 0.2, weight = 1) %>%
+    addPolygons(data = westside,  opacity = 0) %>%
+    addPolygons(data = nw1,  opacity = 0.1) %>%
+    addPolygons(data = nw2,  opacity = 0.1)%>%
+    addPolygons(data = nc1,  opacity = 0.1)%>%
+    addPolygons(data = ne1,  opacity = 0.1)%>%
+    addPolygons(data = ne2,  opacity = 0.1)%>%
+    addPolygons(data = ne3,  opacity = 0.1)%>%
+    addPolygons(data = e1,  opacity = 0.1)%>%
+    addPolygons(data = sw1,  opacity = 0.1)%>%
+    addPolygons(data = sc1,  opacity = 0.1)%>%
+    addPolygons(data = sc2,  opacity = 0.1)%>%
+    addPolygons(data = sc3,  opacity = 0.1)%>%
+    addPolygons(data = se1,  opacity = 0.1)%>%
+    addPolygons(data = se2,  opacity = 0.1)%>%
+    addPolygons(data = se3,  opacity = 0.1)%>%
+    addPolygons(data = se4,  opacity = 0.1)%>%
+    addCircleMarkers(
+      data        = cha_projects,
+      radius      = 1,
+      color       = "darkred",
+      fillOpacity = 0.6, 
+      label       = ~as.character(label),
+      labelOptions = labelOptions(
+        direction = "auto",
+        textsize  = "14px",
+        opacity   = 0.9,
+        offset    = c(4, -4)
+      )
+      ) %>%
+    addCircleMarkers(
+        data        = riots,
+        radius      = 1,
+        color       = "purple",
+        fillOpacity = 0.6, 
+        label       = ~as.character(label),
+        labelOptions = labelOptions(
+          direction = "auto",
+          textsize  = "14px",
+          opacity   = 0.9,
+          offset    = c(4, -4)
+        )
+        ) %>%
+    addControl(paste("Year:", year), position = "topright") %>% 
+    setView(lng = center[1], lat = center[2], zoom = 11.5) 
+  
+  
+    for(nb in nhoods) {
+      map <- map %>%
+        addCircleMarkers(
+          data = filter(homs_year, neighborhood == nb),
+          radius = 1,
+          fillOpacity = 0.7,
+          label = ~category,
+          group = nb,
+          clusterOptions = markerClusterOptions()
+        )
+    }
+    
+  # Save the map as a PNG image using mapshot
+  file_name <- paste0("output/westside/map_images_hotspots/map_", year, ".png")
+  mapshot(map, file = file_name)
+  # file_name <- paste0("output/westside/map_images_hotspots/map_", year, ".shp")
+  # st_write(sde_sf, dsn = file_name,append = FALSE)
+  # Print progress
+  cat("Created map for year", year, "\n")
+}
+
+
+# Create a GIF from the saved images
+# Read all PNG files in the directory
+image_files <- list.files("output/westside/map_images_hotspots", pattern = "*.png", full.names = TRUE)
+image_files <- sort(image_files)  # Ensure files are in order
+
+
+# Read images into a list
+images <- lapply(image_files, image_read)
+
+# Join images into an animation
+animation <- image_join(images)
+
+# Optimize the animation
+animation <- image_animate(animation, fps = 2)  # 2 frames per second
+
+# Save as GIF
+image_write(animation, "output/westside/homicides_yearly_neighborhoods.gif")
+```
+
+```{r}
+
+geojson_files <- list.files("output/westside/map_images", pattern = "*.shp", full.names = TRUE)
+geojson_files <- geojson_files %>%
+  lapply(read_sf) %>%       # Read each GeoJSON file
+  bind_rows()    
+
+all_ellipses <- geojson_files %>%
+  sf::st_cast("POLYGON") %>% 
+  mutate(size = as.numeric(sf::st_area(geometry))) %>%
+  mutate(center = st_centroid(geometry)) %>% 
+  mutate(
+    prev_center = lag(center),
+    # Extract X coordinates (longitude)
+    current_x = st_coordinates(center)[,1],
+    prev_x = lag(current_x),
+    # Calculate distance with sign
+    distance_center_prev = ifelse(
+      !is.na(prev_center),
+      st_distance(center, prev_center, by_element = TRUE) * 
+        ifelse(current_x > prev_x, -1, 1),  # Negative for eastward movement
+      NA_real_
+    )
+  ) %>%
+  # Remove temporary coordinate columns
+  dplyr::select( -prev_x) %>% 
+  mutate(decade = floor(year/10)*10)
+
+```
+
+```{r}
+
+ggplot(data = all_ellipses, aes(x = year, y = -current_x)) + 
+  geom_line()
+
+```
+
+```{r}
+
+coords_tbl <- st_coordinates(all_ellipses) %>%
+  as_tibble() %>%
+  rename(lon = X, lat = Y)  
+
+extremes <- coords_tbl %>%
+  mutate(year = L2+1939) %>%
+  group_by( year) %>%
+  summarise(
+    east_lon = lon[which.max(lon)][1],
+    east_lat = lat[which.max(lon)][1],
+    west_lon = lon[which.min(lon)][1],
+    west_lat = lat[which.min(lon)][1],
+    .groups = "drop"
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    long_distance_m = distHaversine(
+      cbind(west_lon, west_lat),
+      cbind(east_lon, east_lat)
+    )
+  )
+
+
+
+```
+
+```{r}
+
+ggplot(data = extremes) + 
+  geom_line( aes(x = year, y = -east_lon))+ 
+  geom_line( aes(x = year, y = -west_lon))+
+  geom_smooth(aes(x = year, y = -west_lon))+
+  geom_smooth(aes(x = year, y = -east_lon))
+
+
+ggplot() + 
+  geom_point(data = extremes, aes(x = year, y = long_distance_m)) +
+  geom_smooth(data = extremes, aes(x = year, y = long_distance_m)) +
+  geom_point(data = homs_west %>% st_drop_geometry() %>% group_by(year) %>% summarise(total = n()),
+             aes(x = year, y = total*30), color = "orange") +
+   scale_y_continuous(
+    name      = "East–West Distance (m)",
+    limits    = c(0, 10000),        # match your real distance range
+    sec.axis  = sec_axis(
+      ~ . / 30,                       # undo the *30
+      name = "Homs West Count"
+    )
+  ) 
+
+
+```
+```{r}
+counts <- homs_west %>% st_drop_geometry() %>% group_by(year) %>% summarise(total = n())
+
+
+extremes_count <- extremes %>% 
+  left_join(counts)
+reg <- lm(long_distance_m ~ total, data =  extremes_count)
+extremes_count["residual_distance"] <- reg$residuals
+
+
+ggplot() + 
+  geom_point(data = extremes_count, aes(x = year, y = residual_distance)) +
+  geom_smooth(data = extremes_count, aes(x = year, y = residual_distance)) 
+```
+## NEIGHBORHOODS
+
+```{r}
+
+neighborhood <- "sc1"
+
+neighborhood_map <- read_sf(paste0("data/mst/neighborhoods/", neighborhood, ".shp"))
+
+# Set up the years to iterate through
+years <- 1940:2022
+
+year <- years[1]
+#even_years <- years[years %% 2 == 0]
+center  <- st_coordinates(st_centroid(neighborhood_map))
+
+homs_select <- homs_all %>% 
+  st_join(neighborhood_map, join = st_intersects, left = FALSE)
+# Create and save a map for each year
+for (year in years) {
+  # Filter data for the current year
+  homs_year <- homs_select %>% filter(year == !!year)
+  
+  
+  # Calculate standard deviation ellipse for the current year
+  # sde_data <- std_dev_ellipse(homs_year)
+  # sde <- st_ellipse(geometry = sde_data, sx = sde_data$sx, sy = sde_data$sy, rotation = -sde_data$theta) 
+  # 
+  # sde_sf <- st_sf(geometry = sde)%>% 
+  #   mutate(year = !!year)
+  # 
+  # 
+  # Create leaflet map
+  
+  if (nrow(homs_year) == 0) {
+     map <- leaflet() %>%
+       addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+       addPolygons(data = neighborhood_map,  opacity = 0) %>%
+       addControl(paste("Year:", year), position = "topright") %>% 
+       setView(lng = center[1], lat = center[2], zoom = 13) 
+    
+  } else {
+    map <- leaflet() %>%
+      addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+      #addPolygons(data = sde,    fillOpacity = 0.2, weight = 1) %>%
+      addPolygons(data = neighborhood_map,  opacity = 0) %>%
+      addCircleMarkers(
+        data        = cha_projects,
+        radius      = 1,
+        color       = "darkred",
+        fillOpacity = 0.6, 
+        label       = ~as.character(label),
+        labelOptions = labelOptions(
+          direction = "auto", 
+          textsize  = "14px",
+          opacity   = 0.9,
+          offset    = c(4, -4)
+          )
+        ) %>%
+      addCircleMarkers(
+          data        = riots,
+          radius      = 1,
+          color       = "purple",
+          fillOpacity = 0.6, 
+          label       = ~as.character(label),
+          labelOptions = labelOptions(
+            direction = "auto",
+            textsize  = "14px",
+            opacity   = 0.9,
+            offset    = c(4, -4)
+          )
+          ) %>%
+
+      addCircleMarkers(
+        data        = homs_year,
+        radius      = 1,
+        color       = "black",
+        fillOpacity = 0.6,
+        label       = ~as.character(category),
+        labelOptions = labelOptions(
+          direction = "auto",
+          textsize  = "14px",
+          opacity   = 0.9,
+          offset    = c(4, -4)
+        )
+        ,
+        clusterOptions = markerClusterOptions(
+          showCoverageOnHover = TRUE,
+          spiderfyOnMaxZoom   = TRUE,
+          zoomToBoundsOnClick = FALSE,
+          maxClusterRadius    = 50, 
+          disableClusteringAtZoom = 15
+        )
+      ) %>%
+  addControl(paste("Year:", year), position = "topright") %>% 
+  setView(lng = center[1], lat = center[2], zoom = 13) 
+    
+  }
+
+  
+  # Save the map as a PNG image using mapshot
+  file_name <- paste0("output/westside/map_images_hotspots/map_", year, ".png")
+  mapshot(map, file = file_name)
+  #file_name <- paste0("output/westside/map_images_hotspots/map_", year, ".shp")
+  #st_write(sde_sf, dsn = file_name,append = FALSE)
+  # Print progress
+  cat("Created map for year", year, "\n")
+}
+
+# Create a GIF from the saved images
+# Read all PNG files in the directory
+image_files <- list.files("output/westside/map_images_hotspots", pattern = "*.png", full.names = TRUE)
+image_files <- sort(image_files)  # Ensure files are in order
+
+
+
+
+# Read images into a list
+images <- lapply(image_files, image_read)
+
+# Join images into an animation
+animation <- image_join(images)
+
+# Optimize the animation
+animation <- image_animate(animation, fps = 2)  # 2 frames per second
+
+# Save as GIF
+image_write(animation, paste0("output/westside/homicides_yearly_", neighborhood, ".gif"))
+```
+
+
+Split west side into different hot spot areas 
+Show how the count varies over time 
+
+
+
+
+Racine - Halstead - Roosevelt 
+- 1940: 5 
+- 1941: 11 
+- 1942: not a big crime year, 2 
+- 1943: 8
+- 1944: 7
+- 1945: 3 
+- 1946: 11
+- 1947: 9
+- 1948: ~ 11 but some a little westward
+
+
+Along Roosevelt 
+
+- 1944: 12
+- 1945: 0
+- 1946: 4
+- 1947: 10-15
+
+
+Blocks West of Union Park
+
+- 1946: 12
+- 1947: 4
+- 1948: ~ 11-12
+
+Along Kennedy Expressway
+
+1947: 10 (burns - seems to be fire)
+
+
+What's happening from 43 to 44
+
+

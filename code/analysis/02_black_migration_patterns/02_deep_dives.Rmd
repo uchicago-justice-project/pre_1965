@@ -1,0 +1,768 @@
+---
+title: "02_deep_dives"
+output: html_document
+---
+
+```{r Set Up, include = FALSE}
+rm(list = ls())
+source("header.R")
+library(zoo)
+library(fixest)
+library(gganimate)
+library(magick)
+library(fillr)
+library(ggrepel)
+library(av)
+library(gifski)
+library(lfe)
+
+#Homicides 
+hex <- st_read("data/intermediate/homicide_hexagons/survivorship")%>% 
+  mutate(year = as.integer(year))
+df <- st_read("data/mst/hex_merged_w_black_migr.gpkg") %>% 
+  mutate(year = as.integer(year))
+homs <- st_read("data/raw/homicides_1940-1965_geocoded_v3") %>% 
+  mutate(year = as.integer(year)) %>%
+  mutate(category_clean = case_when(str_detect(tolower(cod), "police") ~ "Police Killing",
+                                    str_detect(tolower(cod), "gun") |  str_detect(tolower(cod), "shot") 
+                                    |  str_detect(tolower(cod), "bullet") ~ "Gunshot", 
+                                    str_detect(tolower(cod), "stab") | str_detect(tolower(cod), "cut") ~ "Knife", 
+                                   TRUE ~ "Other"))
+
+#Highways
+streets <- st_read("data/intermediate/highways.gpkg")
+streets <- st_transform(streets, st_crs(hex))
+
+#Census Data 
+census_40_tract <- st_read("data/raw/census/1940_census_tracts")
+census_40_data <- read_csv("data/raw/census/1940_census/nhgis0050_ds76_1940_tract.csv")
+census_tract_40 <- census_40_tract %>% 
+  left_join(census_40_data )
+
+census_50_tract <- st_read("data/raw/census/1950_census_tracts")
+census_50_data <- read_csv("data/raw/census/1950_census/nhgis0051_ds82_1950_tract.csv")
+census_tract_50  <- census_50_tract %>% 
+  left_join(census_50_data )
+
+census_60_tract <- st_read("data/raw/census/1960_census_tracts")
+
+yearly_panel <- read_csv("data/raw/yearly_panel_dataset.csv")
+
+yearly_panel <- hex %>% 
+  dplyr::select(GRID_ID, year) %>% 
+  left_join(yearly_panel, by = c("GRID_ID", "year")) %>% 
+  mutate(year = as.integer(year))
+
+#Projects and Riots 
+cha_projects <- read_sf("data/intermediate/housing_projects/cha_projects.geojson") %>% 
+  rename(bldst = yr_built_start, bldend = yr_built_end, dmlst = yr_dmlsh_or_cnvrt_start, dmlend = yr_dmlsh_or_cnvrt_end ) %>% 
+  mutate(label = paste0("HP:", bldst-1900, ifelse(!is.na(bldend), paste0("-", bldend-1900), "")))
+
+riots <- read_sf("data/intermediate/racial_violence/riots.geojson") %>% 
+  mutate(name_clean = str_remove(name, " housing project") ,
+         label = paste0("Rt:", year))
+
+
+cha_projects <- st_transform(cha_projects, st_crs(hex))
+riots <- st_transform(riots, st_crs(hex))
+
+
+census_tracts <- rbind(census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1940), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1941), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1942), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1943), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1944), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1945), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1946), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1947), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1948), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1949), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1950), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1951), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1952), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1953), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1954), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1955), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1956), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1957), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1958), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1959), 
+                       census_60_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1960)) 
+
+census_tracts <- st_transform(census_tracts, st_crs(hex))
+
+```
+
+#Eisenhower Expressway
+
+## Black Residency
+
+### 10-Yearly Census Tract
+
+```{r, echo= FALSE}
+
+ggplot() + 
+  geom_sf(data = yearly_panel %>% 
+            filter(year == 1940)
+          , aes(fill = share_black)) + 
+  geom_sf(data = streets %>% 
+            filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  geom_sf(data = homs %>% 
+            filter(year == 1940)
+          , aes(color = category_clean)) + 
+  scale_color_manual(values = c("red", "green", "yellow", "purple")) + 
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Eisenhower Expressway & Census Tract Black Residency 1940", 
+       subtitle = "Homicides in 1940")
+
+
+ggplot() + 
+  geom_sf(data = yearly_panel %>% 
+            filter(year == 1950)
+          , aes(fill = share_black)) + 
+  geom_sf(data = streets %>% 
+            filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  geom_sf(data = homs %>% 
+            filter(year == 1950)
+          , aes(color = category_clean)) + 
+  scale_color_manual(values = c("red", "green", "yellow", "purple")) + 
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Eisenhower Expressway & Census Tract Black Residency 1950", 
+       subtitle = "Homicides in 1950")
+
+
+
+ggplot() + 
+  geom_sf(data = yearly_panel %>% 
+            filter(year == 1960), aes(fill = share_black)) + 
+  geom_sf(data = streets %>% 
+            filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  geom_sf(data = homs %>% 
+            filter(year == 1960)
+          , aes(color = category_clean)) + 
+  
+  scale_color_manual(values = c("red", "green", "yellow", "purple")) + 
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Eisenhower Expressway & Census Tract Black Residency 1960", 
+       subtitle = "Homicides in 1960")
+
+```
+
+### 10-Yearly Census Tract
+
+## Homicides and Black Residency
+
+```{r, echo = FALSE, fig.show = 'animate'}
+# 
+# p <- ggplot() +
+#   #transition_time(year) +
+#   transition_states(year, transition_length = 0) +
+#   geom_sf(data = yearly_panel %>%
+#             filter(year >= 1940 & year <= 1960)
+#           , aes(fill = share_black)) +
+#   geom_sf(data = homs %>%
+#             filter(!st_is_empty(geometry)) %>%
+#             filter(year >= 1940 & year <= 1960)
+#           , aes(color = category_clean)) +
+#   geom_sf(data = streets %>%
+#             filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+#           , color = "white") +
+#   scale_color_manual(values = c("red", "green", "yellow", "purple", "white")) + 
+#   theme_minimal() +
+# 
+#   coord_sf(
+#     xlim = c(-87.8, -87.6),
+#     ylim = c(41.82, 41.92))   +
+#   labs(title = "Eisenhower Expressway & Census Tract Black Residency",
+#        subtitle = "Year: {closest_state}")
+# 
+# anim <- gganimate::animate(p, renderer = gifski_renderer())
+# anim_save("output/eisenhower/homicides_share_black.gif", animation = anim)
+# anim
+```
+
+```{r}
+
+knitr::include_graphics("output/eisenhower/homicides_share_black.gif")
+```
+
+```{r, echo = FALSE, fig.show = 'animate'}
+
+# p <- ggplot() +
+#   #transition_time(year) +
+#   transition_states(year, transition_length = 0) +
+#   geom_sf(data = yearly_panel %>%
+#             filter(year >= 1940 & year <= 1965)
+#           , aes(fill = share_black)) +
+#   geom_sf(data = homs %>%
+#             filter(!st_is_empty(geometry)) %>%
+#             filter(year >= 1940 & year <= 1965)
+#           , aes(color = category_clean)) +
+#   geom_sf(data = streets %>%
+#             filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+#           , color = "white") +
+#   scale_color_manual(values = c("red", "green", "yellow", "purple", "white")) +
+#   theme_minimal() +
+# 
+#   coord_sf(
+#       xlim = c(-87.94011, -87.52398), # Approximate longitude bounds of Chicago
+#       ylim = c(41.64454, 42.02304)    # Approximate latitude bounds of Chicago
+#     ) +
+#   labs(title = "Eisenhower Expressway & Census Tract Black Residency",
+#        subtitle = "Year: {closest_state}")
+# 
+# anim <- gganimate::animate(p, renderer = gifski_renderer())
+# anim_save("output/eisenhower/homicides_share_black_all.gif", animation = anim)
+# anim
+```
+
+```{r}
+
+knitr::include_graphics("output/eisenhower/homicides_share_black_all.gif")
+```
+
+## Homicides and Population
+
+```{r, echo = FALSE, fig.show = 'animate'}
+# 
+# p <- ggplot() +
+#   #transition_time(year) +
+#   transition_states(year, transition_length = 0) +
+#   geom_sf(data = yearly_panel %>%
+#             filter(year >= 1940 & year <= 1960)
+#           , aes(fill = total_pop)) +
+#   geom_sf(data = homs %>% filter(!st_is_empty(geometry)) %>%
+#             filter(year >= 1940 & year <= 1960)
+#           , color = "red") +
+#   geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+#           , color = "white") +
+# 
+#   theme_minimal() +
+#   coord_sf(
+#     xlim = c(-87.8, -87.6),
+#     ylim = c(41.82, 41.92))   +
+#   labs(title = "Eisenhower Expressway & Census Tract Black Residency",
+#        subtitle = "Year: {closest_state}")
+# 
+# anim <- gganimate::animate(p, renderer = gifski_renderer())
+# anim_save("output/eisenhower/homicides_pop_concentration.gif", animation = anim)
+# anim
+```
+
+```{r}
+
+knitr::include_graphics("output/eisenhower/homicides_pop_concentration.gif")
+```
+
+
+
+```{r, echo = FALSE, fig.show = 'animate'}
+
+# p <- ggplot() +
+#   #transition_time(year) +
+#   transition_states(year, transition_length = 0) +
+#   geom_sf(data = yearly_panel %>%
+#             filter(year >= 1940 & year <= 1960)
+#           , aes(fill = share_vacant_homes)) +
+#   geom_sf(data = homs %>% filter(!st_is_empty(geometry)) %>%
+#             filter(year >= 1940 & year <= 1960)
+#           , color = "red") +
+#   geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+#           , color = "white") +
+# 
+#   theme_minimal() +
+#   coord_sf(
+#     xlim = c(-87.8, -87.6),
+#     ylim = c(41.82, 41.92))   +
+#   labs(title = "Eisenhower Expressway & Census Tract",
+#        subtitle = "Year: {closest_state}")
+# 
+# anim <- gganimate::animate(p, renderer = gifski_renderer())
+# anim_save("output/eisenhower/homicides_vacant_homes.gif", animation = anim)
+# anim
+```
+
+```{r}
+
+knitr::include_graphics("output/eisenhower/homicides_vacant_homes.gif")
+```
+
+
+```{r, echo = FALSE, fig.show = 'animate'}
+
+# p <- ggplot() +
+#   #transition_time(year) +
+#   transition_states(year, transition_length = 0) +
+#   geom_sf(data = yearly_panel %>%
+#             filter(year >= 1940 & year <= 1960)
+#           , aes(fill = share_college_grad)) +
+#   geom_sf(data = homs %>% filter(!st_is_empty(geometry)) %>%
+#             filter(year >= 1940 & year <= 1960)
+#           , color = "red") +
+#   geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+#           , color = "white") +
+# 
+#   theme_minimal() +
+#   coord_sf(
+#     xlim = c(-87.8, -87.6),
+#     ylim = c(41.82, 41.92))   +
+#   labs(title = "Eisenhower Expressway & Census Tract Black Residency",
+#        subtitle = "Year: {closest_state}")
+# 
+# anim <- gganimate::animate(p, renderer = gifski_renderer())
+# anim_save("output/eisenhower/homicides_college_grads.gif", animation = anim)
+# anim
+
+```
+
+```{r}
+
+knitr::include_graphics("output/eisenhower/homicides_college_grads.gif")
+```
+
+## Homicides and Census Tracts
+
+```{r, echo = FALSE, fig.show = 'animate'}
+
+# p <- ggplot() + 
+#   #transition_time(year) + 
+#   transition_states(year, transition_length = 0) + 
+#    geom_sf(data = yearly_panel %>% 
+#             filter(year >= 1940 & year <= 1960)
+#           , aes(fill = share_black)) + 
+#   geom_sf(data = census_tracts , 
+#           alpha = 0.6) + 
+#   geom_sf(data = homs %>% filter(!st_is_empty(geometry)) %>%
+#             filter(year >= 1940 & year <= 1960)
+#           , color = "red") +
+#   geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+#           , color = "white") +
+#  
+#   theme_minimal() + 
+#   coord_sf(
+#     xlim = c(-87.8, -87.6), 
+#     ylim = c(41.82, 41.92))   + 
+#   labs(title = "Eisenhower Expressway & Census Tracts", 
+#        subtitle = "Year: {closest_state}") 
+# 
+# anim <- gganimate::animate(p, renderer = gifski_renderer())
+# anim_save("output/eisenhower/homicides_census_grid.gif", animation = anim)
+# anim
+```
+
+
+Concentration appears to move somewhat away from census grid borders 
+```{r}
+
+knitr::include_graphics("output/eisenhower/homicides_census_grid.gif")
+```
+
+# Regression Data
+
+```{r}
+highway <- streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+
+#Create distances from highway 
+buffer_distance <- 0.1*5280  
+highway_buffer_tenthtmile <- st_buffer(highway, dist = buffer_distance)
+buffer_distance <- 0.25*5280  
+highway_buffer_quartmile <- st_buffer(highway, dist = buffer_distance)
+buffer_distance <- 0.5*5280  
+highway_buffer_halfmile <- st_buffer(highway, dist = buffer_distance)
+buffer_distance <- 1*5280  
+highway_buffer_1mile <- st_buffer(highway, dist = buffer_distance)
+
+
+#Intersect with polygons
+polygons_tenthmile_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_tenthtmile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+polygons_quartmile_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_quartmile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+polygons_halfmile_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_halfmile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+polygons_1_highway <- yearly_panel %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_1mile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+
+#Create flags in data 
+reg_data <- yearly_panel %>% 
+  filter(year >= 1940 & year <= 1960) %>% 
+  mutate(flag_tenthmile_hway = 
+           ifelse(GRID_ID %in% c(polygons_tenthmile_highway$GRID_ID), 1, 0), 
+         flag_quartmile_hway = 
+           ifelse(GRID_ID %in% c(polygons_quartmile_highway$GRID_ID), 1, 0),
+         flag_halfmile_hway = 
+           ifelse(GRID_ID %in% c(polygons_halfmile_highway$GRID_ID), 1, 0), 
+         flag_1mile_hway = 
+           ifelse(GRID_ID %in% c(polygons_1_highway$GRID_ID), 1, 0)) %>% 
+  mutate(flag_cat = case_when(flag_tenthmile_hway == 1 ~ "0.1 mile", 
+                              flag_quartmile_hway == 1 ~ "0.25 mile", 
+                              flag_halfmile_hway == 1 ~ "0.5 mile", 
+                              flag_1mile_hway == 1 ~ "1 mile",
+                              TRUE ~ "> 1 mile")) %>% 
+  mutate(flag_constr = ifelse(year > 1949, 1, 0)) %>% 
+  mutate(flag_black_50 = ifelse(share_black > 0.5, 1, 0), 
+         flag_black_90 = ifelse(share_black > 0.9, 1, 0))
+
+
+```
+
+```{r, echo = FALSE}
+ggplot() + 
+  geom_sf(data = reg_data %>% filter(year == 1950),  
+          aes(fill = share_black, 
+              color = flag_cat), linewidth = 1.5) + 
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.8, 41.94))   + 
+  labs(title = "Eisenhower Expressway & Polygons Within 1 Mile of Highway")
+
+
+```
+
+### Homicides and Black Residency with Segments
+
+```{r, echo = FALSE, fig.show = 'animate'}
+
+# p <- ggplot() + 
+#   transition_states(year, transition_length = 0) + 
+#   geom_sf(data = reg_data %>%
+#             filter(year >= 1940 & year <= 1960)
+#           , aes(fill = share_black, 
+#                color = flag_cat), linewidth = 1.5) + 
+#   geom_sf(data = homs %>% filter(!st_is_empty(geometry)) %>% 
+#             filter(year >= 1940 & year <= 1960) 
+#           , color = "red") + 
+#   geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+#           , color = "white") +
+#   theme_minimal() + 
+#   coord_sf(
+#     xlim = c(-87.8, -87.6), 
+#     ylim = c(41.82, 41.92))   + 
+#   labs(title = "Eisenhower Expressway & Census Tract", 
+#        subtitle = "Year: {closest_state}") 
+
+#anim <- gganimate::animate(p, renderer = gifski_renderer())
+#anim_save("output/eisenhower/homicides_share_black_mile_cats.gif", animation = anim)
+#anim
+```
+
+```{r}
+knitr::include_graphics("output/eisenhower/homicides_share_black_mile_cats.gif")
+
+```
+
+### Census Tracts and Segments
+
+```{r, echo = FALSE}
+
+ggplot() + 
+  geom_sf(data = reg_data %>% filter(year == 1950), 
+          aes(fill = share_black, 
+               color = flag_cat), linewidth = 1.5) + 
+  geom_sf(data = census_tract_50, alpha = 0.7) + 
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+          , color = "red") +
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Eisenhower Expressway & Census Tracts 1950") 
+
+
+```
+
+# Regressions
+
+## Proximity only
+
+### Halfmile against full mile no controls at all
+
+Without controls, the highway clearly correlates with more homicides.
+
+```{r}
+
+
+reg_fe <- feglm(homicides ~ flag_constr:flag_halfmile_hway
+              | year + GRID_ID
+              , data = reg_data
+              , family = "poisson")
+summary(reg_fe)
+
+reg_fe <- feglm(homicides ~ flag_constr:flag_quartmile_hway
+              | year + GRID_ID
+              , data = reg_data
+              , family = "poisson")
+summary(reg_fe)
+
+
+reg_fe <- feglm(homicides ~ flag_constr:flag_tenthmile_hway
+              | year + GRID_ID
+              , data = reg_data
+              , family = "poisson")
+summary(reg_fe)
+
+```
+
+### Halfmile against full mile controlling only for black res
+
+Controlling only for the share of black residency, we still see some effect of highway proximity. Effect is most pronounced the closer we get to highway.
+
+```{r}
+
+
+reg_fe <- feglm(homicides ~ flag_constr:flag_halfmile_hway
+                + share_black
+              | year + GRID_ID
+              , data = reg_data
+              , family = "poisson")
+summary(reg_fe)
+
+reg_fe <- feglm(homicides ~ flag_constr:flag_quartmile_hway
+                 + share_black
+              | year + GRID_ID
+              , data = reg_data
+              , family = "poisson")
+summary(reg_fe)
+
+
+reg_fe <- feglm(homicides ~ flag_constr:flag_tenthmile_hway
+                 + share_black
+              | year + GRID_ID
+              , data = reg_data
+              , family = "poisson")
+summary(reg_fe)
+
+```
+
+### Tenthmile against full mile with employment, college grad ratio, and population and fixed effects
+
+Adding more controls, the effect persists (but standard error grows)
+
+```{r}
+reg_fe <- feglm(homicides ~  flag_constr*flag_tenthmile_hway 
+                 + share_white +  share_black + share_foreign + 
+                  share_unemployed + share_college_grad 
+                 + log(total_pop)
+              | year + GRID_ID
+              , data = reg_data %>% filter(flag_1mile_hway == 1) 
+              , family = "poisson")
+summary(reg_fe)
+```
+
+### Tenthmile against full mile with employment and college grad ratio + Unhoused and fixed effects
+
+```{r}
+reg_fe <- feglm(homicides ~  flag_constr*flag_tenthmile_hway 
+                 + share_white +  share_black + share_foreign + 
+                  share_unemployed +share_college_grad
+                + has_housing*share_unemployed + has_housing*share_black
+                 + log(total_pop)
+              | year + GRID_ID
+              , data = reg_data %>% filter(flag_1mile_hway == 1)
+              , family = "poisson")
+summary(reg_fe)
+```
+
+### Tenthmile against full mile with employment and college grad ratio + Unhoused + Vacant Homes and fixed effects
+
+Adding vacant homes as an interactive controls destroys the effect
+
+```{r}
+reg_fe <- feglm(homicides ~  flag_constr*flag_tenthmile_hway 
+                 + share_white +  share_foreign + 
+                  share_unemployed +share_college_grad 
+                + has_housing * share_black + has_housing*share_unemployed 
+                + share_vacant_homes*share_black
+                 + log(total_pop)
+              | year + GRID_ID
+              , data = reg_data %>% filter(flag_1mile_hway == 1)
+              , family = "poisson")
+summary(reg_fe)
+```
+
+No additional effect for vacant homes near highway. 
+
+```{r}
+
+reg_fe <- feglm(homicides ~  flag_constr*flag_tenthmile_hway*share_vacant_homes
+                 + share_white +  share_foreign + 
+                  share_unemployed +share_college_grad 
+                + has_housing * share_black + has_housing*share_unemployed 
+                + share_vacant_homes*share_black
+                 + log(total_pop)
+              | year + GRID_ID
+              , data = reg_data %>% filter(flag_1mile_hway == 1)
+              , family = "poisson")
+summary(reg_fe)
+```
+
+
+## Proximity + Black Residency
+
+There is some evidence that homicicides increase more for areas with higher black residency near highway
+
+### No controls
+
+```{r}
+
+reg_fe <- feglm(homicides ~ flag_constr * flag_tenthmile_hway * flag_black_50
+              | year + GRID_ID
+              , data = reg_data %>% filter(flag_1mile_hway == 1)
+              , family = "poisson")
+summary(reg_fe)
+
+```
+
+### All controls
+
+We do see an additional effect for black residency areas near the highway compared to away from highway. 
+
+```{r}
+
+reg_fe <- feglm(homicides ~ flag_constr * flag_tenthmile_hway * flag_black_50
+                + share_white +  share_foreign + 
+                  share_unemployed + share_college_grad 
+                + has_housing * share_black + has_housing*share_unemployed 
+                + share_vacant_homes*share_black
+                 + log(total_pop)
+              | year + GRID_ID
+              , data = reg_data %>% filter(flag_1mile_hway == 1)
+              , family = "poisson")
+summary(reg_fe)
+
+```
+
+### All controls & Comparison against all Chicago
+
+effect is more pronounced when we compare it against all of Chicago
+
+```{r}
+
+reg_fe <- feglm(homicides ~ flag_constr * flag_tenthmile_hway * flag_black_50
+                + share_white +  share_foreign + 
+                  share_unemployed +  share_college_grad 
+                + has_housing * share_black + has_housing*share_unemployed 
+                + share_vacant_homes*share_black
+                 + log(total_pop)
+              | year + GRID_ID
+              , data = reg_data 
+              , family = "poisson")
+summary(reg_fe)
+
+```
+
+# Appendix
+
+## Notes
+
+To do:
+
+Look into general increases and decreases in homicides
+
+Expressway info:
+
+-   1940 Superhighway System established Congress Street Expressway (or "Westside Route"), officially authorized for construction on October 31, 1940.
+
+-   Actual construction didn't begin until December 7, 1949
+
+-   Look into Relocation Housing Projects by CHA
+
+-   Look into Hospital Construction
+
+Opening:
+
+-   The first section opened between South Ashland Avenue and South Laramie Avenue on December 15, 1955
+
+-   The remainder of the route between South Ashland Avenue and Grant Park in Downtown Chicago opened on August 10, 1956
+
+-   Various segments between Mannheim Road (US12/20/45) and Racine Avenue were completed between 1954 and 1960
+
+## 1950 UIC Black Residency Maps
+
+```{r, echo= FALSE}
+
+ggplot() + 
+  geom_sf(data = df %>% filter(year == 1950), aes(fill = est_black_res_39)) + 
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Estimated Black Residency 1940", 
+       subtitle = "UIC Maps")
+
+
+ggplot() + 
+  geom_sf(data = df %>% filter(year == 1950), aes(fill = bk_res_3)) + 
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Perc. of Hexagon w Black Residency of > 1% in 1950", 
+       subtitle = "UIC Maps")
+
+ggplot() + 
+  geom_sf(data = df %>% filter(year == 1950), aes(fill = bk_res_2)) + 
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Perc. of Hexagon w Black Residency of > 10% in 1950", 
+       subtitle = "UIC Maps")
+  
+ggplot() + 
+  geom_sf(data = df %>% filter(year == 1950), aes(fill = bk_res_1)) + 
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Perc. of Hexagon w Black Residency of > 90%", 
+       subtitle = "UIC Maps")
+
+```
+
+```{r}
+plot_data <- homs %>% 
+  st_drop_geometry() %>% 
+  group_by(year) %>% 
+  summarise(sum = n()) %>% 
+  ungroup() 
+
+
+ggplot(data = plot_data ) + 
+  geom_line(aes(x = year, y = sum))
+```

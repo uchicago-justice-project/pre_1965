@@ -1,0 +1,273 @@
+---
+title: "03_west_side_ellipses"
+output: html_document
+---
+
+
+
+```{r Set Up, include = FALSE}
+rm(list = ls())
+source("header.R")
+library(geosphere)
+
+# HOMICIDES 
+
+  ## Pre 65 
+homs <- st_read("data/raw/homicides_1940-1965_geocoded_v3") %>% 
+  mutate(year = as.integer(year)) %>%
+  mutate(category_clean = case_when(str_detect(tolower(cod), "police") ~ "Police Killing",
+                                    str_detect(tolower(cod), "gun") |  str_detect(tolower(cod), "shot") 
+                                    |  str_detect(tolower(cod), "bullet") ~ "Gunshot", 
+                                    str_detect(tolower(cod), "stab") | str_detect(tolower(cod), "cut") ~ "Knife", 
+                                   TRUE ~ "Other")) %>% 
+  filter(!st_is_empty(geometry)) %>% 
+  filter(!str_detect(tolower(cod), "burn"))%>% 
+  filter(!str_detect(tolower(cod), "overdose"))%>% 
+  filter(!str_detect(tolower(cod), "abortion"))%>% 
+  filter(!str_detect(tolower(cod), "fire"))
+
+
+hex <- st_read("data/intermediate/homicide_hexagons/survivorship")%>% 
+  mutate(year = as.integer(year))
+
+homs_clean <- homs %>% 
+  dplyr::select(year)
+
+ ##Post 65
+
+grid <- st_read("data/raw/Fishnet_InsideChicago_150m")
+
+post_65 <- read_csv("data/raw/IndividualHomicides_1965_2022.csv") %>% 
+  filter(!is.na(X_MetCent) & !is.na(Y_MetCent))
+post_65 <- st_as_sf(post_65, coords = c("X_MetCent", "Y_MetCent"), crs = st_crs(grid))
+post_65 <- st_transform(post_65, crs = st_crs(hex)) 
+
+post_65_clean <- post_65 %>% 
+  dplyr::select(year)
+
+
+  ##combine 
+
+homs_all <- rbind(homs_clean, post_65_clean)
+
+#Westside
+
+westside <- read_sf("data/intermediate/westside.geojson")
+westside <- st_transform(westside, st_crs(hex))
+
+
+```
+
+```{r}
+
+homs_west <- homs_all %>% 
+  st_join(westside, join = st_intersects, left = FALSE)
+```
+
+
+
+```{r}
+
+# Set up the years to iterate through
+years <- 1940:2022
+
+year <- year[1]
+#even_years <- years[years %% 2 == 0]
+
+# Create and save a map for each year
+for (year in years) {
+  # Filter data for the current year
+  homs_year <- homs_west %>% filter(year == !!year)
+  
+  # Calculate standard deviation ellipse for the current year
+  sde_data <- std_dev_ellipse(homs_year)
+  sde <- st_ellipse(geometry = sde_data, sx = sde_data$sx, sy = sde_data$sy, rotation = -sde_data$theta) 
+  
+  sde_sf <- st_sf(geometry = sde)%>% 
+    mutate(year = !!year)
+
+  
+  # Create leaflet map
+  map <- leaflet(homs) %>%
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+    addCircleMarkers(  # Replace GlPoints with standard markers
+      data = homs_year,
+      radius = 1,
+      color = "black",
+      fillOpacity = 0.6
+    )  %>%
+    addPolygons(data = sde, opacity = 0.2) %>%
+    addControl(paste("Year:", year), position = "topright") %>% 
+    addPolygons(data = westside, opacity = 0)
+  
+  # Save the map as a PNG image using mapshot
+  file_name <- paste0("output/westside/map_images/map_", year, ".png")
+  mapshot(map, file = file_name)
+  file_name <- paste0("output/westside/map_images/map_", year, ".shp")
+  st_write(sde_sf, dsn = file_name,append = FALSE)
+  # Print progress
+  cat("Created map for year", year, "\n")
+}
+
+# Create a GIF from the saved images
+# Read all PNG files in the directory
+image_files <- list.files("output/westside/map_images", pattern = "*.png", full.names = TRUE)
+image_files <- sort(image_files)  # Ensure files are in order
+
+
+
+
+# Read images into a list
+images <- lapply(image_files, image_read)
+
+# Join images into an animation
+animation <- image_join(images)
+
+# Optimize the animation
+animation <- image_animate(animation, fps = 2)  # 2 frames per second
+
+# Save as GIF
+image_write(animation, "output/westside/homicides_yearly_extended_westside_no_hotspot.gif")
+```
+
+
+```{r}
+
+homs_west_all <- homs_west %>% 
+  st_drop_geometry() %>% 
+  group_by(year) %>% 
+  summarise(all_homs = n()) %>% 
+  ungroup()
+
+
+
+geojson_files <- list.files("output/westside/map_images", pattern = "*.shp", full.names = TRUE)
+geojson_files <- geojson_files %>%
+  lapply(read_sf) %>%       # Read each GeoJSON file
+  bind_rows()    
+
+all_ellipses <- geojson_files %>%
+  sf::st_cast("POLYGON") %>% 
+  mutate(size = as.numeric(sf::st_area(geometry))) %>% 
+  left_join(homs_west_all) %>% 
+  mutate(center = st_centroid(geometry)) %>% 
+  mutate(
+    prev_center = lag(center),
+    # Extract X coordinates (longitude)
+    current_x = st_coordinates(center)[,1],
+    prev_x = lag(current_x),
+    # Calculate distance with sign
+    distance_center_prev = ifelse(
+      !is.na(prev_center),
+      st_distance(center, prev_center, by_element = TRUE) * 
+        ifelse(current_x > prev_x, -1, 1),  # Negative for eastward movement
+      NA_real_
+    )
+  ) %>%
+  # Remove temporary coordinate columns
+  dplyr::select(-current_x, -prev_x)
+
+```
+
+Plots: 
+```{r}
+
+
+p <- ggplot() + 
+  geom_sf( data = all_ellipses$center, aes(color = all_ellipses$year)) + 
+   geom_sf_label(data = all_ellipses$center, 
+                 aes(label = all_ellipses$year), size = 2)
+
+ggsave(
+  filename = "output/westside/ellipses_center_move.png",     # File name
+  plot = p,                  # ggplot object
+  width = 20,                      # Width in inches
+  height = 15,                      # Height in inches
+  units = "in",                    # Units (inches)
+  dpi = 300                        # Resolution (dots per inch)
+)
+
+p <- ggplot(data = all_ellipses %>% st_drop_geometry()) + 
+  geom_line(aes(x = year, y = size)) +
+  geom_label(aes(x = year, y = size, label = year), size= 2)
+
+ggsave(
+  filename = "output/westside/expand_contract.png",     # File name
+  plot = p,                  # ggplot object
+  width = 12,                      # Width in inches
+  height = 8,                      # Height in inches
+  units = "in",                    # Units (inches)
+  dpi = 300                        # Resolution (dots per inch)
+)
+
+p <- ggplot(data = all_ellipses %>% st_drop_geometry()) + 
+  geom_line(aes(x = year, y = distance_center_prev)) +
+  geom_point(aes(x = year, y = distance_center_prev)) +
+  geom_text( aes(x = year, y = distance_center_prev, label = ifelse(year  %% 5 == 0, as.character(year), "" )))
+
+ggsave(
+  filename = "output/westside/distance.png",     # File name
+  plot = p,                  # ggplot object
+  width = 12,                      # Width in inches
+  height = 8,                      # Height in inches
+  units = "in",                    # Units (inches)
+  dpi = 300                        # Resolution (dots per inch)
+)
+
+
+```
+
+
+```{r}
+
+reg <- lm(size ~ log(all_homs) , data = all_ellipses)
+summary(reg)
+
+all_ellipses <- all_ellipses %>% 
+  mutate(pred_size = reg$coefficients["(Intercept)"] + reg$coefficients["log(all_homs)"]*log(all_homs))
+
+p <- ggplot(data = all_ellipses %>% st_drop_geometry()) + 
+  geom_line(aes(x = year, y = size)) +
+  geom_label(aes(x = year, y = size, label = year), size= 2) + 
+  geom_line(aes( x = year, y = pred_size), color = "red")
+
+ggsave(
+  filename = "output/westside/expand_contract_with_pred.png",     # File name
+  plot = p,                  # ggplot object
+  width = 12,                      # Width in inches
+  height = 8,                      # Height in inches
+  units = "in",                    # Units (inches)
+  dpi = 300                        # Resolution (dots per inch)
+)
+
+```
+
+## Archive 
+
+
+```{r}
+#' # Make a grid to sample from
+grd <- sf::st_make_grid(n = c(1, 1), cellsize = c(100, 100), offset = c(0,0))
+
+# sample 100 points
+pnts <- sf::st_sample(grd, 100)
+std_dev_ellipse(pnts)
+
+
+```
+
+```{r}
+
+# Split data by year and calculate ellipses for each group
+sde_data_list <- lapply(split(homs_west, homs_west$year), std_dev_ellipse)
+
+# Convert ellipse parameters to spatial polygons
+sde_list <- lapply(sde_data_list, function(x) {
+  st_ellipse(geometry = x, sx = x$sx, sy = x$sy, rotation = -x$theta)
+})
+
+leaflet(homs) %>%
+  addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+  addGlPoints(homs_west, radius = 2, fillColor = "black") %>%
+  addPolygons(data = sde_list[["1940"]], opacity = 0.2)
+```

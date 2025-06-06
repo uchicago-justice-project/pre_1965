@@ -1,0 +1,294 @@
+---
+title: "Eisenhower Construction Timeline"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# The Construction Timeline of Congress Street Expressway (1940-1964)
+
+```{r Set Up, include = FALSE}
+rm(list = ls())
+source("header.R")
+library(zoo)
+library(fixest)
+library(gganimate)
+library(magick)
+library(fillr)
+library(ggrepel)
+library(av)
+library(gifski)
+library(lfe)
+
+#Homicides 
+hex <- st_read("data/intermediate/homicide_hexagons/survivorship")%>% 
+  mutate(year = as.integer(year))
+df <- st_read("data/mst/hex_merged_w_black_migr.gpkg") %>% 
+  mutate(year = as.integer(year))
+homs <- st_read("data/raw/homicides_1940-1965_geocoded_v3") %>% 
+  mutate(year = as.integer(year))
+
+#Highways
+streets <- st_read("data/intermediate/highways.gpkg")
+streets <- st_transform(streets, st_crs(hex))
+
+#Census Data 
+census_40_tract <- st_read("data/raw/census/1940_census_tracts")
+census_40_data <- read_csv("data/raw/census/1940_census/nhgis0050_ds76_1940_tract.csv")
+census_tract_40 <- census_40_tract %>% 
+  left_join(census_40_data )
+
+census_50_tract <- st_read("data/raw/census/1950_census_tracts")
+census_50_data <- read_csv("data/raw/census/1950_census/nhgis0051_ds82_1950_tract.csv")
+census_tract_50  <- census_50_tract %>% 
+  left_join(census_50_data )
+
+census_60_tract <- st_read("data/raw/census/1960_census_tracts")
+
+yearly_panel <- read_csv("data/raw/yearly_panel_dataset.csv")
+
+yearly_panel <- hex %>% 
+  dplyr::select(GRID_ID, year) %>% 
+  left_join(yearly_panel, by = c("GRID_ID", "year")) %>% 
+  mutate(year = as.integer(year))
+
+#Projects and Riots 
+cha_projects <- read_sf("data/intermediate/housing_projects/cha_projects.geojson") %>% 
+  rename(bldst = yr_built_start, bldend = yr_built_end, dmlst = yr_dmlsh_or_cnvrt_start, dmlend = yr_dmlsh_or_cnvrt_end ) %>% 
+  mutate(label = paste0("HP:", bldst-1900, ifelse(!is.na(bldend), paste0("-", bldend-1900), "")))
+
+riots <- read_sf("data/intermediate/racial_violence/riots.geojson") %>% 
+  mutate(name_clean = str_remove(name, " housing project") ,
+         label = paste0("Rt:", year))
+
+
+cha_projects <- st_transform(cha_projects, st_crs(hex))
+riots <- st_transform(riots, st_crs(hex))
+
+
+census_tracts <- rbind(census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1940), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1941), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1942), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1943), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1944), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1945), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1946), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1947), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1948), 
+                       census_40_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1949), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1950), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1951), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1952), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1953), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1954), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1955), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1956), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1957), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1958), 
+                       census_50_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1959), 
+                       census_60_tract %>% dplyr::select(GISJOIN, geometry) %>% mutate(year = 1960)) 
+
+census_tracts <- st_transform(census_tracts, st_crs(hex))
+
+
+
+```
+
+## Project Approval and Early Planning
+
+The Congress Street Expressway project was officially approved by the Chicago City Council in 1940 with an initial estimated cost of \$45 million[^1]. However, actual construction would not begin for nearly a decade.
+
+[^1]: <https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/32324227/7f62080f-df2f-4ef6-9065-d8d424103af3/tribune_news.pdf>
+
+## Construction Commencement (1949-1951)
+
+Construction officially began in December 1949, starting with extensive demolition on Chicago's Near West Side. In February 1949, city housing coordinator D.E. Macklemann noted that some residents refused to believe the highway would actually be built, with one man forcing officials to obtain an eviction order because "he had been reading about superhighways for years and thought the whole thing was a dream".
+
+```{r, echo = FALSE}
+
+points <- data.frame(
+  latitude = c(41.875283, 41.875575),
+  longitude = c(-87.691631, -87.636657)
+)
+
+ggplot() + 
+  geom_sf(data = yearly_panel %>% 
+            filter(year == 1950)
+          , aes(fill = share_black)) + 
+  geom_sf(data = streets %>% 
+            filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  geom_sf(data = homs %>% 
+            filter(year == 1950)
+          , color = "red") + 
+  geom_point(data = points, 
+             aes(x = longitude, y = latitude), 
+             color = "blue", size = 3) + # Customize color and size of points
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Eisenhower Expressway & Census Tract Black Residency 1950", 
+       subtitle = "Homicides in 1950")
+
+
+ggplot() + 
+  geom_sf(data = yearly_panel %>% 
+            filter(year == 1950)
+          , aes(fill = total_pop)) + 
+  geom_sf(data = streets %>% 
+            filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  geom_sf(data = homs %>% 
+            filter(year == 1950)
+          , color = "red") + 
+  geom_point(data = points, 
+             aes(x = longitude, y = latitude), 
+             color = "blue", size = 3) + # Customize color and size of points
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Eisenhower Expressway & Census Tract Total Pop 1950", 
+       subtitle = "Homicides in 1950")
+
+
+```
+
+By November 1949, hundreds of structures were being razed on the Near West Side, creating massive demolition zones[^2]. In 1951, construction was visible west from the Post Office along Canal Street, with Congress Parkway passing through this area[^3].
+
+[^2]: <https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/32324227/7f62080f-df2f-4ef6-9065-d8d424103af3/tribune_news.pdf>
+
+[^3]: <http://www.encyclopedia.chicagohistory.org/pages/10585.html>
+
+## Early Construction Phases (1952-1954)
+
+By 1952, the federal government had spent \$8 million altering the Post Office building to accommodate the new expressway[\^6]. Construction continued throughout 1953, with the Cook County board opening bids on \$5 million worth of expressway projects in various segments[\^7]. These included:
+
+-   Drainage work between Central and Cicero Avenues
+-   Paving from 1st to 12th Avenue in Maywood
+-   Paving from 12th to 21st Avenue in Maywood
+-   Paving from 21st Avenue to Addison Creek bridge
+-   Grade separations at Homan and Keeler Avenues[^4]
+
+[^4]: <https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/32324227/7f62080f-df2f-4ef6-9065-d8d424103af3/tribune_news.pdf>
+
+## Mid-Construction Progress (1955-1956)
+
+By 1955, \$67 million had been spent on the segment between Michigan Avenue and the city limits, with the estimated total cost increasing to \$96 million and the completion date pushed to 1956[\^9].
+
+On March 22, 1955, the federal government awarded a \$507,765 contract for reconstructing the Congress Street arcade through the Chicago Post Office, permitting extension of the expressway through the building and across the river by fall 1956[\^10].
+
+In summer 1955, the first pavement segment opened to traffic from La Salle to State Street[\^11].
+
+The Illinois Highway Department planned to receive bids for paving between Sacramento Avenue to Western Avenue and from Western to Damen Avenue.
+
+By late 1955, approximately 4.5 miles from Ashland Avenue west to Laramie Avenue were expected to open before Christmas, though this segment was delayed by a national shortage of Portland cement[\^13].
+
+41.875810, -87.666823 41.871458, -87.754790
+
+```{r, echo = FALSE}
+
+points <- data.frame(
+  latitude = c(41.875810, 41.871458),
+  longitude = c(-87.666823, -87.754790)
+)
+
+ggplot() + 
+  geom_sf(data = yearly_panel %>% 
+            filter(year == 1950)
+          , aes(fill = share_black)) + 
+  geom_sf(data = streets %>% 
+            filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  geom_sf(data = homs %>% 
+            filter(year == 1950)
+          , color = "red") + 
+  geom_point(data = points, 
+             aes(x = longitude, y = latitude), 
+             color = "blue", size = 3) + # Customize color and size of points
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Eisenhower Expressway & Census Tract Black Residency 1950", 
+       subtitle = "Homicides in 1950")
+
+
+```
+
+## Segment-by-Segment Progress (1956-1958)
+
+### Eastern Segments (Loop to Halsted)
+
+-   Buildings east of State Street were arcaded to widen the roadway
+-   From State Street to Clark Street, new wide pavement with median curb was in use
+-   Seven-story Western Union building had a section removed for the expressway
+-   The old Customs House was demolished
+-   Sherman Street was moved to an alley a half block farther west
+-   \$5 million bridge construction over the south branch of the Chicago River continued[^5]
+
+[^5]: <https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/32324227/7f62080f-df2f-4ef6-9065-d8d424103af3/tribune_news.pdf>
+
+### Post Office Area
+
+-   Canal Street was dipped to a lower level to pass under the expressway
+-   Ceiling of the arcade through the Post Office was raised seven feet
+-   From Canal Street to Desplaines Street, girders and beams were in place for elevated highway[^6]
+
+[^6]: <https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/32324227/7f62080f-df2f-4ef6-9065-d8d424103af3/tribune_news.pdf>
+
+### Central Segments (Halsted to City Limits)
+
+-   Excavation was approximately 80% completed between Halsted and Racine
+-   Digging had started between Racine and Sacramento Boulevard
+-   For removal of the Garfield Park elevated structure between Sacramento and Aberdeen Street, temporary tracks were laid in the south half of Van Buren Street
+-   Almost all buildings were removed to clear the right of way as far west as Kedzie Avenue[\^16]
+
+```{r, echo = FALSE}
+
+points <- data.frame(
+  latitude = c(41.874354),
+  longitude = c(-87.706016)
+)
+
+ggplot() + 
+  geom_sf(data = yearly_panel %>% 
+            filter(year == 1950)
+          , aes(fill = share_black)) + 
+  geom_sf(data = streets %>% 
+            filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  geom_sf(data = homs %>% 
+            filter(year == 1950)
+          , color = "red") + 
+  geom_point(data = points, 
+             aes(x = longitude, y = latitude), 
+             color = "blue", size = 3) + # Customize color and size of points
+  theme_minimal() + 
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.82, 41.92))   + 
+  labs(title = "Eisenhower Expressway & Census Tract Black Residency 1950", 
+       subtitle = "Homicides in 1950")
+
+
+```
+
+## Suburban Construction (1956-1960)
+
+### Oak Park to Forest Park
+
+-   Work was halted between Austin Boulevard and Des Plaines Avenue until decisions were made about the Chicago, Aurora & Elgin railroad
+-   From Desplaines Avenue west, right of way required land from three cemeteries: Concordia, Waldheim, and Forest Home
+-   Approximately 3,500 graves were relocated from these cemeteries[\^17][\^18][\^19]
+
+### Western Suburbs
+
+-   From 1st Avenue to Mannheim Road, bridges were constructed at 1st, 5th, 9th, and 17th Avenues
+-   Dirt from excavation in Maywood was trucked to right of way in Hillside for elevated embankment
+-   In Hillside, the expressway was designed to split into two branches: one northwest to Lake Street highway and one southwest with interchanges at Roosevelt Road and Cermak Road[\^20]
+
+## Rapid Transit Integration (1960)
+
+In August 1960, the Chicago Transit Authority began laying rails in the expressway between Kostner Avenue and Pulaski Road[\^21]. CTA chairman Virgil Gunlock stated: "We are going to have rapid transit service on the west side by the end of next year," with plans to run trains before signal installations and stations were completed[\^22].
+
+## Project Completion (1961-1964)
+
+On December 18, 1961, the final stretch of the Congress Expressway opened, running through DuPage County and ending in Elmhurst[\^23]. On January 10, 1964, the Chicago City Council renamed the Congress Expressway after former President Dwight D. Eisenhower[\^24].

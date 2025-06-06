@@ -3,3 +3,473 @@ title: "01_homicide_change_and_black_migr"
 output: html_document
 ---
 
+```{r, include = FALSE}
+library(gganimate)
+library(magick)
+library(fillr)
+library(ggrepel)
+library(av)
+library(zoo)
+
+rm(list = ls())
+source("header.R")
+
+#Hexagons 
+hex <- st_read("data/intermediate/homicide_hexagons/survivorship")
+df <- st_read("data/mst/hex_merged_w_black_migr.gpkg") 
+
+#Streets
+streets <- st_read("data/intermediate/highways.gpkg")
+
+#Projects and Riots
+
+cha_projects <- read_sf("data/intermediate/housing_projects/cha_projects.geojson") %>% 
+  rename(bldst = yr_built_start, bldend = yr_built_end, dmlst = yr_dmlsh_or_cnvrt_start, dmlend = yr_dmlsh_or_cnvrt_end ) %>% 
+  mutate(label = paste0("HP:", bldst-1900, ifelse(!is.na(bldend), paste0("-", bldend-1900), "")))
+
+riots <- read_sf("data/intermediate/racial_violence/riots.geojson") %>% 
+  mutate(name_clean = str_remove(name, " housing project") ,
+         label = paste0("Rt:", year))
+cha_projects <- st_transform(cha_projects, st_crs(hex))
+riots <- st_transform(riots, st_crs(hex))
+
+
+
+
+```
+
+# CHANGES 1939 MIGRATION --------------------------------
+
+## Year-by-Year Time Series -----------------------------------
+
+```{r}
+
+
+df_changes <- df %>% 
+  st_drop_geometry() %>% 
+  distinct(GRID_ID, year, hom_ct, hom_rt, name_prj, bldst_prj, name_riot, year_riot, bk_res_since_39, in_check) %>% 
+  arrange(year) %>% 
+  group_by(GRID_ID) %>% 
+  mutate(across(c(hom_ct), ~((. - lag(.))/lag(.)))) %>% 
+  ungroup() 
+
+year_start <- 1940 
+year_end <- 1955
+
+df_main_lim <- df %>% 
+  dplyr::select(GRID_ID, year) %>%
+  left_join(df_changes, by = c("GRID_ID", "year")) %>% 
+  filter(str_detect(bk_res_since_39, "& Black Migration")) %>% 
+  filter(year >= year_start , year <= year_end)
+
+riots_expand <- riots %>% 
+  st_drop_geometry() %>% 
+  group_by(name) %>%
+  complete(year = seq(year_start, year_end, 1)) %>% 
+  arrange(year) %>% 
+  fill(everything(), .direction = "down") %>% 
+  filter(!is.na(id)) %>% 
+  ungroup()
+
+riots_expand <- riots %>% 
+  dplyr::select(name) %>% 
+  left_join(riots_expand, by = "name") %>% 
+  filter(year <= year_end) %>% 
+  mutate(year = as.integer(year))
+
+housing_expand <- cha_projects %>% 
+  st_drop_geometry() %>% 
+  mutate(year = bldst) %>% 
+  group_by(name) %>%
+  complete(year = seq(year_start, year_end, 1)) %>% 
+  arrange(year) %>%
+  fill(everything(), .direction = "down") %>% 
+  filter(!is.na(bldst)) %>% 
+  ungroup()
+
+housing_expand <- cha_projects %>% 
+  dplyr::select(name) %>% 
+  left_join(housing_expand, by = "name") %>% 
+  filter(year <= year_end & year >= year_start) %>% 
+  mutate(year = as.integer(year))
+
+streets_select <- streets %>% 
+  st_drop_geometry() %>% 
+  filter(DEDICATED_ %in% c("EISENHOWER EXPY", 
+                           "ADLAI STEVENSON EXPY", 
+                           "CHICAGO SKWY", 
+                            "DAN RYAN EXPY", 
+                           "KENNEDY EXPY")) %>% 
+  mutate(year = begin) %>% 
+  group_by(OBJECTID) %>%
+  complete(year = seq(year_start, year_end, 1)) %>% 
+  arrange(year) %>%
+  fill(everything(), .direction = "down") %>% 
+  filter(!is.na(begin)) %>% 
+  ungroup() %>% 
+  dplyr::distinct(OBJECTID, DEDICATED_, year, begin, open)
+
+streets_select <- streets %>% 
+  dplyr::select(OBJECTID) %>% 
+  left_join(streets_select, by = "OBJECTID") %>% 
+  filter(year <= year_end & year >= year_start) %>% 
+  mutate(year = as.integer(year))
+
+```
+
+
+```{r}
+
+
+
+label_positions_riot <- st_centroid(riots_expand) %>%
+  st_transform(4326) %>%  # Convert back to WGS84 if needed
+  cbind(st_coordinates(.))
+
+label_positions_housing <-  st_centroid(housing_expand) %>%
+  st_transform(4326) %>%  # Convert back to WGS84 if needed
+  cbind(st_coordinates(.))
+
+g<- ggplot() + 
+  transition_time(year) + 
+  geom_sf(data = df_main_lim , aes(fill = hom_ct, color = as.factor(in_check))) + 
+  geom_sf(data = riots_expand, size = 1, color = "green") + 
+  geom_sf(data = housing_expand, color = "purple", size= 0.3) +
+  geom_sf(data = streets_select, aes(color =  paste0(DEDICATED_,": ", begin, "-", open))) + 
+  geom_text(data = label_positions_riot, position=position_jitter(), 
+            aes(x = X, y = Y, label = label, vjust = 1), size = 1) +
+  geom_text_repel(data = label_positions_housing, position=position_jitter(), 
+            aes(x = X, y = Y, label = label, vjust = 1), size = 1) +
+  labs(title = glue("Hexagons with Black Migration from 1939 to 1950 & Change in Homicides"), 
+       subtitle ="Year: {frame_time}",
+         fill = "Change of Homicides",  color = "Highways & In Checkerboard", x = "", y = "") +
+  scale_fill_gradientn(
+      colors = c( "#00264D", "#55d0ff", "#7ce8ff","white", "pink", "red", "darkred"  ), 
+      limits = c(-1.5, 1.5), 
+      na.value = "white") +
+  scale_color_manual(values = c("darkgrey", "black", "pink")) + 
+  theme_minimal() +
+  coord_sf(
+    xlim = c(-87.746, -87.5), 
+    ylim = c(41.6, 42.0)    
+  ) +
+  theme(legend.key.size = unit(0.4, 'cm')) +
+  theme(legend.title = element_text(size = 4), 
+        legend.text  = element_text(size = 4),  
+        axis.ticks = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank(), 
+        plot.title = element_text(size = 8, face = "bold"),
+        plot.subtitle = element_text(size = 6))
+
+anim <- gganimate::animate(g, renderer = av_renderer("output/year_by_year_change_39_perc.mp4"), 
+                fps = 0.5, nframes = 16, 
+                width = 1920,
+                height = 1080,
+                res = 300, 
+                dir = "ouput/")
+
+
+#magick::image_write(anim, path="myanimation.gif")
+  
+```
+
+
+How do we account for high homicide places. Higher homicide level --> more fluctuation. 
+
+Look into when which segment of Eisenhower was built - there appear to be some segments that see immediate increase and some that see decline 
+
+think about how to de-mean data: maybe remove year average for those neighborhoods? for entire city? 
+
+Create a chart showing 5 year-out average values for each year 
+
+Create a measure that looks at both year over year variance - is there value in knowing that some hexagons fluctuate more over time than others? 
+
+What makes something a top increase or decrease? How do we account for high homicide and low homicide areas? 
+
+How do we account for fluctuation - fluctuation is an inherent property but assumably waves make a decrease for high homicide areas quite likely 
+
+Thoughts regression: 
+
+- Tri-hexagons? choose those hexagons that are on border to which housing is closest to be treated 
+- Assumably already working with clusters of common trends 
+- Concerned about variation of high homicide areas even accounting for a) entity fixed effects b) year fixed effects c) proportional measures 
+
+
+## Year-by-Year 5-Year Out Average ------------------------------
+
+```{r}
+
+
+df_changes <- df %>% 
+   st_drop_geometry() %>% 
+  distinct(GRID_ID, year, hom_ct, hom_rt, name_prj, bldst_prj, name_riot, year_riot, bk_res_since_39, in_check) %>% 
+  group_by(GRID_ID) %>%
+  arrange(year) %>%
+  mutate(
+        # 5-year forward-looking average (current year + next 4)
+        rolling_avg = rollapply(hom_ct, 
+                              width = 5, 
+                              FUN = \(x) mean(x, na.rm = TRUE),
+                              align = "left",
+                              fill = NA),
+        
+        # Yearly change in rolling average
+        yoy_change = rolling_avg - lag(rolling_avg)
+    ) %>%
+    ungroup()
+
+year_start <- 1940 
+year_end <- 1955
+
+df_main_lim <- df %>% 
+  dplyr::select(GRID_ID, year) %>%
+  left_join(df_changes, by = c("GRID_ID", "year")) %>% 
+  filter(str_detect(bk_res_since_39, "& Black Migration")) %>% 
+  filter(year >= year_start , year <= year_end)
+
+
+riots_expand <- riots %>% 
+  st_drop_geometry() %>% 
+  group_by(name) %>%
+  complete(year = seq(year_start, year_end, 1)) %>% 
+  arrange(year) %>% 
+  fill(everything(), .direction = "down") %>% 
+  filter(!is.na(id)) %>% 
+  ungroup()
+
+riots_expand <- riots %>% 
+  dplyr::select(name) %>% 
+  left_join(riots_expand, by = "name") %>% 
+  filter(year <= year_end) %>% 
+  mutate(year = as.integer(year))
+
+housing_expand <- cha_projects %>% 
+  st_drop_geometry() %>% 
+  mutate(year = bldst) %>% 
+  group_by(name) %>%
+  complete(year = seq(year_start, year_end, 1)) %>% 
+  arrange(year) %>%
+  fill(everything(), .direction = "down") %>% 
+  filter(!is.na(bldst)) %>% 
+  ungroup()
+
+housing_expand <- cha_projects %>% 
+  dplyr::select(name) %>% 
+  left_join(housing_expand, by = "name") %>% 
+  filter(year <= year_end & year >= year_start) %>% 
+  mutate(year = as.integer(year))
+
+streets_select <- streets %>% 
+  st_drop_geometry() %>% 
+  filter(DEDICATED_ %in% c("EISENHOWER EXPY", 
+                           "ADLAI STEVENSON EXPY", 
+                           "CHICAGO SKWY", 
+                            "DAN RYAN EXPY", 
+                           "KENNEDY EXPY")) %>% 
+  mutate(year = begin) %>% 
+  group_by(OBJECTID) %>%
+  complete(year = seq(year_start, year_end, 1)) %>% 
+  arrange(year) %>%
+  fill(everything(), .direction = "down") %>% 
+  filter(!is.na(begin)) %>% 
+  ungroup() %>% 
+  dplyr::distinct(OBJECTID, DEDICATED_, year, begin, open)
+
+streets_select <- streets %>% 
+  dplyr::select(OBJECTID) %>% 
+  left_join(streets_select, by = "OBJECTID") %>% 
+  filter(year <= year_end & year >= year_start) %>% 
+  mutate(year = as.integer(year))
+
+```
+
+
+```{r}
+
+
+label_positions_riot <- st_centroid(riots_expand) %>%
+  st_transform(4326) %>%  # Convert back to WGS84 if needed
+  cbind(st_coordinates(.))
+
+label_positions_housing <-  st_centroid(housing_expand) %>%
+  st_transform(4326) %>%  # Convert back to WGS84 if needed
+  cbind(st_coordinates(.))
+
+g<- ggplot() + 
+  transition_time(year) + 
+  geom_sf(data = df_main_lim , aes(fill = yoy_change)) + 
+  geom_sf(data = riots_expand, size = 1, color = "green") + 
+  geom_sf(data = housing_expand, color = "purple", size= 0.3) +
+  geom_sf(data = streets_select, aes(color =  paste0(DEDICATED_,": ", begin, "-", open))) + 
+  geom_text(data = label_positions_riot, position=position_jitter(), 
+            aes(x = X, y = Y, label = label, vjust = 1), size = 1) +
+  geom_text_repel(data = label_positions_housing, position=position_jitter(), 
+            aes(x = X, y = Y, label = label, vjust = 1), size = 1) +
+  labs(title = glue("Hexagons with Black Migration from 1948 to 1950 & Change of Homicides"), 
+       subtitle ="Year: {frame_time}",
+         fill = "Change of Homicides",  color = "Highways", x = "", y = "") +
+  scale_fill_gradientn(
+      colors = c( "#00264D", "#55d0ff", "#7ce8ff","white", "pink", "red", "darkred"  ), 
+      limits = c(-1.5, 1.5), 
+      na.value = "white") +
+  theme_minimal() +
+  coord_sf(
+    xlim = c(-87.746, -87.5), 
+    ylim = c(41.6, 42.0)    
+  ) +
+  theme(legend.key.size = unit(0.4, 'cm')) +
+  theme(legend.title = element_text(size = 4), 
+        legend.text  = element_text(size = 4),  
+        axis.ticks = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank(), 
+        plot.title = element_text(size = 8, face = "bold"),
+        plot.subtitle = element_text(size = 6))
+
+anim <- gganimate::animate(g, renderer = av_renderer("output/5year_by_5year_change_39.mp4"), 
+                fps = 0.5, nframes = 16, 
+                width = 1920,
+                height = 1080,
+                res = 300)
+
+```
+# CHANGES 1948 MIGRATION --------------------------------
+
+## Year-by-Year Time Series -----------------------------------
+
+```{r}
+
+
+df_changes <- df %>% 
+  st_drop_geometry() %>% 
+  distinct(GRID_ID, year, hom_ct, hom_rt, name_prj, name_riot, year_riot, bk_res_since_48) %>% 
+  arrange(year) %>% 
+  group_by(GRID_ID) %>% 
+  mutate(across(c(hom_ct), ~((. - lag(.))/lag(.)))) %>% 
+  ungroup() 
+
+year_start <- 1948
+year_end <- 1955
+
+df_main_lim <- df %>% 
+  dplyr::select(GRID_ID, year) %>%
+  left_join(df_changes, by = c("GRID_ID", "year")) %>% 
+  filter(str_detect(bk_res_since_48, "& Black Migration")) %>% 
+  filter(year >= year_start , year <= year_end)
+
+riots_expand <- riots %>% 
+  st_drop_geometry() %>% 
+  group_by(name) %>%
+  complete(year = seq(year_start, year_end, 1)) %>% 
+  arrange(year) %>% 
+  fill(everything(), .direction = "down") %>% 
+  filter(!is.na(id)) %>% 
+  ungroup()
+
+riots_expand <- riots %>% 
+  dplyr::select(name) %>% 
+  left_join(riots_expand, by = "name") %>% 
+  filter(year <= year_end) %>% 
+  mutate(year = as.integer(year))
+
+housing_expand <- cha_projects %>% 
+  st_drop_geometry() %>% 
+  mutate(year = bldst) %>% 
+  group_by(name) %>%
+  complete(year = seq(year_start, year_end, 1)) %>% 
+  arrange(year) %>%
+  fill(everything(), .direction = "down") %>% 
+  filter(!is.na(bldst)) %>% 
+  ungroup()
+
+housing_expand <- cha_projects %>% 
+  dplyr::select(name) %>% 
+  left_join(housing_expand, by = "name") %>% 
+  filter(year <= year_end & year >= year_start) %>% 
+  mutate(year = as.integer(year))
+
+streets_select <- streets %>% 
+  st_drop_geometry() %>% 
+  filter(DEDICATED_ %in% c("EISENHOWER EXPY", 
+                           "ADLAI STEVENSON EXPY", 
+                           "CHICAGO SKWY", 
+                            "DAN RYAN EXPY", 
+                           "KENNEDY EXPY")) %>% 
+  mutate(year = begin) %>% 
+  group_by(OBJECTID) %>%
+  complete(year = seq(year_start, year_end, 1)) %>% 
+  arrange(year) %>%
+  fill(everything(), .direction = "down") %>% 
+  filter(!is.na(begin)) %>% 
+  ungroup() %>% 
+  dplyr::distinct(OBJECTID, DEDICATED_, year, begin, open)
+
+streets_select <- streets %>% 
+  dplyr::select(OBJECTID) %>% 
+  left_join(streets_select, by = "OBJECTID") %>% 
+  filter(year <= year_end & year >= year_start) %>% 
+  mutate(year = as.integer(year))
+
+```
+
+
+```{r}
+
+
+
+label_positions_riot <- st_centroid(riots_expand) %>%
+  st_transform(4326) %>%  # Convert back to WGS84 if needed
+  cbind(st_coordinates(.))
+
+label_positions_housing <-  st_centroid(housing_expand) %>%
+  st_transform(4326) %>%  # Convert back to WGS84 if needed
+  cbind(st_coordinates(.))
+
+g<- ggplot() + 
+  transition_time(year) + 
+  geom_sf(data = df_main_lim , aes(fill = hom_ct)) + 
+  geom_sf(data = riots_expand, size = 1, color = "green") + 
+  geom_sf(data = housing_expand, color = "purple", size= 0.3) +
+  geom_sf(data = streets_select, aes(color =  paste0(DEDICATED_,": ", begin, "-", open))) + 
+  geom_text(data = label_positions_riot, position=position_jitter(), 
+            aes(x = X, y = Y, label = label, vjust = 1), size = 1) +
+  geom_text_repel(data = label_positions_housing, position=position_jitter(), 
+            aes(x = X, y = Y, label = label, vjust = 1), size = 1) +
+  labs(title = glue("Hexagons with Black Migration from 1948 to 1950 & Change of Homicides"), 
+       subtitle ="Year: {frame_time}",
+         fill = "Change of Homicides",  color = "Highways", x = "", y = "") +
+  scale_fill_gradientn(
+      colors = c( "#00264D", "#55d0ff", "#7ce8ff","white", "pink", "red", "darkred"  ), 
+      limits = c(-1.5, 1.5), 
+      na.value = "white") +
+  theme_minimal() +
+  coord_sf(
+    xlim = c(-87.746, -87.5), 
+    ylim = c(41.6, 42.0)    
+  ) +
+  theme(legend.key.size = unit(0.4, 'cm')) +
+  theme(legend.title = element_text(size = 4), 
+        legend.text  = element_text(size = 4),  
+        axis.ticks = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_blank(), 
+        plot.title = element_text(size = 8, face = "bold"),
+        plot.subtitle = element_text(size = 6))
+
+anim <- gganimate::animate(g, renderer = av_renderer("output/year_by_year_change_48_perc.mp4"), 
+                fps = 0.5, nframes = 16, 
+                width = 1920,
+                height = 1080,
+                res = 300)
+
+
+#magick::image_write(anim, path="myanimation.gif")
+  
+```
+
+
+
+
+
+
