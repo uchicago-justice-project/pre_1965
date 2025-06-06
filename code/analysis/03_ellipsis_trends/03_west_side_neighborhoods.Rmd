@@ -8,7 +8,6 @@ output: html_document
 ```{r Set Up, include = FALSE}
 rm(list = ls())
 source("header.R")
-library(geosphere)
 library(lubridate)
 library(tidygeocoder)
 library(mapview)
@@ -16,6 +15,7 @@ library(mapedit)
 library(htmltools)
 library(shiny)
 library(rsconnect)
+library(leaflet)
 
 
 
@@ -39,6 +39,9 @@ homs <- st_read("data/raw/homicides_1940-1965_geocoded_v3") %>%
 
 homs_clean <- homs %>% 
   dplyr::select(year, category)
+
+grid <- st_read("data/raw/Fishnet_InsideChicago_150m")
+
 
 post_65 <- read_csv("data/raw/IndividualHomicides_1965_2022.csv") %>%
   filter(!is.na(X_MetCent) & !is.na(Y_MetCent))
@@ -354,7 +357,7 @@ ui <- fluidPage(
     column(width = 6,
            leafletOutput("map1", height = "400px"),
            absolutePanel(id = "controlPanel1", class = "control-panel", fixed = TRUE,
-             top = 20, left = 20, width = 180,
+             top = 200, left = 20, width = 180,
              selectInput("shade_var1", "Shade census tracts by:", choices = choices_select, selected = "homicides"),
              sliderInput("selected_year1", "Select Year:", min = 1940, max = 1990, step = 10, value = 1960, sep = "", animate = TRUE)
            )
@@ -362,7 +365,7 @@ ui <- fluidPage(
     column(width = 6,
            leafletOutput("map2", height = "400px"),
            absolutePanel(id = "controlPanel2", class = "control-panel", fixed = TRUE,
-             top = 20, left = "52%", width = 180,
+             top = 200, left = "52%", width = 180,
              selectInput("shade_var2", "Shade census tracts by:", choices = choices_select, selected = "share_over_1_ppr"),
              sliderInput("selected_year2", "Select Year:", min = 1940, max = 1990, step = 10, value = 1960, sep = "", animate = TRUE)
            )
@@ -373,7 +376,7 @@ ui <- fluidPage(
     column(width = 6,
            leafletOutput("map3", height = "400px"),
            absolutePanel(id = "controlPanel3", class = "control-panel", fixed = TRUE,
-             bottom = 20, left = 20, width = 180,
+             bottom = 15, left = 20, width = 180,
              selectInput("shade_var3", "Shade census tracts by:", choices = choices_select, selected = "share_black"),
              sliderInput("selected_year3", "Select Year:", min = 1940, max = 1990, step = 10, value = 1960, sep = "", animate = TRUE)
            )
@@ -381,7 +384,7 @@ ui <- fluidPage(
     column(width = 6,
            leafletOutput("map4", height = "400px"),
            absolutePanel(id = "controlPanel4", class = "control-panel", fixed = TRUE,
-             bottom = 20, left = "52%", width = 180,
+             bottom = 15, left = "52%", width = 180,
              selectInput("shade_var4", "Shade census tracts by:", choices = choices_select, selected = "median_value"),
              sliderInput("selected_year4", "Select Year:", min = 1940, max = 1990, step = 10, value = 1960, sep = "", animate = TRUE)
            )
