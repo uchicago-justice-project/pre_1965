@@ -23,9 +23,7 @@ streets <- st_read("data/intermediate/highways.gpkg")
 
 #Projects and Riots
 
-cha_projects <- read_sf("data/intermediate/housing_projects/cha_projects.geojson") %>% 
-  rename(bldst = yr_built_start, bldend = yr_built_end, dmlst = yr_dmlsh_or_cnvrt_start, dmlend = yr_dmlsh_or_cnvrt_end ) %>% 
-  mutate(label = paste0("HP:", bldst-1900, ifelse(!is.na(bldend), paste0("-", bldend-1900), "")))
+cha_projects <- read_sf("data/raw/housing_projects/housing_v3") 
 
 riots <- read_sf("data/intermediate/racial_violence/riots.geojson") %>% 
   mutate(name_clean = str_remove(name, " housing project") ,
@@ -79,9 +77,9 @@ riots_expand <- riots %>%
 
 housing_expand <- cha_projects %>% 
   st_drop_geometry() %>% 
-  mutate(year = bldst) %>% 
+  mutate(year = opened) %>% 
   group_by(name) %>%
-  complete(year = seq(year_start, year_end, 1)) %>% 
+  complete(year = seq(opened, closed, 1)) %>% 
   arrange(year) %>%
   fill(everything(), .direction = "down") %>% 
   filter(!is.na(bldst)) %>% 

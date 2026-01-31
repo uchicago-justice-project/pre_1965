@@ -1,0 +1,818 @@
+---
+title: "05_for_paper"
+output: html_document
+---
+
+
+
+```{r Set Up, include = FALSE}
+rm(list = ls())
+source("header.R")
+library(lubridate)
+library(htmltools)
+library(shiny)
+library(rsconnect)
+library(leaflet)
+library(ggspatial)
+library(rosm)
+library(prettymapr)
+library(modelsummary)
+library(fixest)
+# HOMICIDES 
+
+  ## Pre 65 
+homs <- st_read("data/raw/homicides_1940-1965_geocoded_v3") %>% 
+  mutate(year = as.integer(year), 
+         date_clean = as_date(date), 
+         category = paste0(tolower(cod), ": ", format(date_clean, "%m/%d"))) %>% 
+  filter(!st_is_empty(geometry)) 
+
+homs_clean <- homs %>% 
+  dplyr::select(year, category)
+
+hex <- st_read("data/intermediate/homicide_hexagons/survivorship")%>% 
+  mutate(year = as.integer(year))
+
+#grid <- st_read("data/raw/Fishnet_InsideChicago_150m")
+
+# post_65 <- read_csv("data/raw/IndividualHomicides_1965_2022.csv") %>%
+#   filter(!is.na(X_MetCent) & !is.na(Y_MetCent))
+# post_65 <- st_as_sf(post_65, coords = c("X_MetCent", "Y_MetCent"), crs = st_crs(grid))
+# post_65 <- st_transform(post_65, crs = st_crs(homs))
+
+# post_65_clean <- post_65 %>%
+#   dplyr::select(year) %>%
+#   mutate(category= "")
+
+# homs_all <- rbind(homs_clean, post_65_clean)
+
+
+#Housing Projects
+cha_projects <- read_sf("data/raw/housing_projects/housing_v3") 
+cha_projects <- st_transform(cha_projects, st_crs(homs))
+
+#Riots
+riots <- read_sf("data/intermediate/racial_violence/riots.geojson") %>% 
+  mutate(name_clean = str_remove(name, " housing project") ,
+         label = paste0("Rt:", year))
+riots <- st_transform(riots, st_crs(homs))
+
+#Census
+census_walk <- read_sf("data/mst/chicago_cenus_tract_data_crosswalked.geojson") %>% 
+  dplyr::select(GISJOIN_1970, year, vacant_homes, median_value)
+census_walk <- st_transform(census_walk, st_crs(homs))
+
+census_walk_data  <- read.csv("data/mst/crosswalked_census_tracts_1940_2000.csv") %>%
+  rename(year = YEAR)
+
+census_walk <- census_walk %>% 
+  left_join(census_walk_data)
+
+
+#Highways
+streets <- st_read("data/intermediate/highways.gpkg")
+streets <- st_transform(streets, st_crs(homs))
+
+#Neighborhoods
+westside <- read_sf("data/intermediate/westside.geojson")
+westside <- st_transform(westside, st_crs(homs))
+
+yearly_panel <- read_csv("data/raw/yearly_panel_dataset.csv")
+
+yearly_panel <- hex %>% 
+  dplyr::select(GRID_ID, year) %>% 
+  left_join(yearly_panel, by = c("GRID_ID", "year")) %>% 
+  mutate(year = as.integer(year))
+
+
+```
+
+#Limit to West Data 
+
+```{r West Side Filtering}
+
+census_west <- st_filter(census_walk, westside)
+
+homs_west <- st_filter(homs, census_west) %>% 
+  mutate(year_decade = round(year/10, 0)*10) %>% 
+  group_by(year_decade) %>% 
+  mutate(years = n_distinct(year)) %>%
+  ungroup()
+
+projects_west <- st_filter(cha_projects, census_west)
+
+homs_non_west <- anti_join(homs %>% st_drop_geometry(), homs_west %>% st_drop_geometry())
+
+census_west_outline <-census_west  %>%
+  st_union() %>%        # dissolve all tracts into one geometry
+  st_cast("POLYGON")
+
+yearly_panel_west <- st_filter(yearly_panel, census_west_outline,  .predicate = st_within)
+
+
+
+```
+
+# Westside Map
+
+```{r}
+
+
+map <- ggplot() +
+  ggspatial::annotation_map_tile(type = "cartolight", zoom = 12) +  
+
+  geom_sf(data = census_west_outline , 
+          fill = NA, color = "black", size = 1, linewidth = 2) +
+  theme_minimal()
+
+ggsave(filename = "output/westside/for_paper/map_westside.png", plot = map, width = 10, height = 8, dpi = 300)
+```
+
+# Ellipses
+```{r}
+
+# Set up the years to iterate through
+years <- 1940:1964
+
+year <- years[1]
+
+# Create and save a map for each year
+for (year in years) {
+  # Filter data for the current year
+  homs_year <- homs_west %>% filter(year == !!year)
+  
+  # Calculate standard deviation ellipse for the current year
+  sde_data <- std_dev_ellipse(homs_year)
+  sde <- st_ellipse(geometry = sde_data, sx = sde_data$sx, sy = sde_data$sy, rotation = -sde_data$theta) 
+  
+  sde_polygon <- st_cast(sde, "POLYGON")
+
+  sde_sf <- st_sf(
+    geometry = sde_polygon  # Or replace with `year` if you want to pass it externally
+  ) %>% 
+    mutate(year = !!year)
+
+
+  map <- ggplot() +
+    # Add the transparent census layer
+    geom_sf(data =census_west_outline,  fill = NA, color = "black") +
+    
+    # Add the semi-transparent sde polygons
+    geom_sf(data = sde_sf, fill = "black", alpha = 0.2, color = "black") +
+    
+    # Add the homicide points
+    geom_sf(data = homs_year, color = "black", size = 0.7, alpha = 0.6) +
+    theme_void() +
+    labs(title = glue("  {year}") )+
+    theme(plot.title = element_text(size=24)) +
+    coord_sf(expand = TRUE) +
+    theme(plot.margin = margin(0, 0, 0, 0))
+  
+  # Save the map as a PNG image using mapshot
+  file_name <- paste0("output/westside/map_images_1940_65/map_", year, ".png")
+  ggsave(filename = file_name, plot = map)
+  file_name <- paste0("output/westside/map_images_1940_65/map_", year, ".shp")
+  st_write(sde_sf, dsn = file_name,append = FALSE)
+  # Print progress
+  cat("Created map for year", year, "\n")
+}
+
+# Create a GIF from the saved images
+# Read all PNG files in the directory
+image_files <- list.files("output/westside/map_images_1940_65", pattern = "*.png", full.names = TRUE)
+image_files <- sort(image_files)  # Ensure files are in order
+
+
+
+
+# Read images into a list
+images <- lapply(image_files, image_read)
+
+# Join images into an animation
+animation <- image_join(images)
+
+# Optimize the animation
+animation <- image_animate(animation, fps = 2)  # 2 frames per second
+
+# Save as GIF
+image_write(animation, "output/westside/homicides_yearly_1940_65.gif")
+
+
+```
+
+
+#Data for Plots
+
+```{r}
+
+geojson_files <- list.files("output/westside/map_images_1940_65", pattern = "*.shp", full.names = TRUE)
+geojson_files <- geojson_files %>%
+  lapply(read_sf) %>%       # Read each GeoJSON file
+  bind_rows()    
+
+all_ellipses <- geojson_files %>%
+  sf::st_cast("POLYGON") %>% 
+  mutate(size = as.numeric(sf::st_area(geometry))) %>%
+  mutate(center = st_centroid(geometry)) %>% 
+  mutate(
+    prev_center = lag(center),
+    # Extract X coordinates (longitude)
+    current_x = st_coordinates(center)[,1],
+    prev_x = lag(current_x),
+    # Calculate distance with sign
+    distance_center_prev = ifelse(
+      !is.na(prev_center),
+      st_distance(center, prev_center, by_element = TRUE) * 
+        ifelse(current_x > prev_x, -1, 1),  # Negative for eastward movement
+      NA_real_
+    )
+  ) %>%
+  # Remove temporary coordinate columns
+  dplyr::select( -prev_x) %>% 
+  mutate(decade = floor(year/10)*10) %>% 
+  filter(year <= 1964)
+
+st_write(all_ellipses, "data/mst/all_ellipses.shp")
+
+counts <- homs_west %>% 
+  st_drop_geometry() %>% 
+  group_by(year) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  filter(year <= 1964)
+
+counts_nonwest <- homs_non_west %>% 
+  st_drop_geometry() %>% 
+  group_by(year) %>% 
+  summarise(count = n()) %>% 
+  ungroup() %>% 
+  filter(year <= 1964)
+
+
+
+```
+
+
+
+Plots: 
+```{r}
+
+p <- ggplot(data = all_ellipses, aes(x = year, y = -current_x)) +
+  geom_line() + 
+  geom_point(size = 2) +
+  geom_label(aes(label = year), size = 3) +
+  labs(y = "Latititude of Ellipse Center", x = "Year") +
+  scale_y_continuous(labels = function(x) paste0(format(x, nsmall  = 2), "°W"), limits = c(87.665, 87.7), expand = c(0, 0)) +
+  theme_classic()
+
+ggsave(filename = "output/westside/for_paper/movement_plot_no_flip.png", plot = p, width = 10, height = 8, dpi = 300)
+
+p <- ggplot(data = counts, aes(x = year, y = count)) +
+  geom_line() + 
+  geom_point(size = 2) +
+  geom_label(aes(label = paste0("'", year-1900, ":\n", count)), size = 3) +
+  labs(y = "Number of Homicides in Chicago West Side", x = "Year") +
+  scale_y_continuous(limits = c(0, 170), expand = c(0, 0)) +
+  theme_classic()
+
+ggsave(filename = "output/westside/for_paper/number_homicides.png", plot = p, width = 10, height = 8, dpi = 300)
+
+p <- ggplot(data = counts_nonwest, aes(x = year, y = count)) +
+  geom_line() + 
+  geom_point(size = 2) +
+  geom_label(aes(label = paste0("'", year-1900, ":\n", count)), size = 3) +
+  labs(y = "Number of Homicides in Chicago excl. West Side", x = "Year") +
+  scale_y_continuous(limits = c(0, 450), expand = c(0, 0.1)) +
+  theme_classic()
+
+ggsave(filename = "output/westside/for_paper/number_homicides_chicago.png", plot = p, width = 10, height = 8, dpi = 300)
+
+```
+
+#Panel Ellipses
+```{r}
+years <- c(1940, 1946, 1952, 1958, 1964)
+  
+file_names <- paste0("output/westside/map_images_1940_65/map_", years, ".png")
+
+
+img_list <- lapply(file_names, image_read)
+
+img_size <- image_info(img_list[[1]])  # assuming all images are the same size
+blank_img <- image_blank(width = img_size$width, height = img_size$height, color = "white")
+
+img_list[[6]] <- blank_img
+
+row1 <- image_append(c(img_list[[1]], img_list[[2]], img_list[[3]]))
+row2 <- image_append(c(img_list[[4]], img_list[[5]], img_list[[6]]))
+
+# Stack rows vertically
+panel <- image_append(c(row1, row2), stack = TRUE)
+
+image_write(panel, path = "output/westside/for_paper/combined_panel_clean.png", format = "png", density = "300")
+
+```
+
+
+# Highway 
+
+```{r}
+
+years  <-  c(1940, 1946, 1952, 1958, 1964)
+plot_list <- list()
+
+for (i in 1:5) {
+
+ year <- years[i]
+ p <- ggplot() + 
+  geom_sf(data= census_west_outline, fill = NA) +
+  geom_sf(data = streets %>% 
+            filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  geom_sf(data = homs_west %>% 
+            filter(year == !!year), size = 1)    + 
+    theme_void() +
+    labs(title = glue("  {year}") )+
+    theme(plot.margin = margin(0, 0, 0, 0)) +
+    coord_sf(
+      xlim = c(-87.8, -87.6), 
+      ylim = c(41.82, 41.92))   + 
+    labs(title = glue("  {year}") )
+ 
+ img <- image_graph(width = 800, height = 800, res = 300)
+ print(p)
+ dev.off()
+ plot_list[[i]] <- img
+  
+}
+
+img_size <- image_info(plot_list[[1]])  # assuming all images are the same size
+blank_img <- image_blank(width = img_size$width, height = img_size$height, color = "white")
+
+plot_list[[6]] <- blank_img
+
+row1 <- image_append(c(plot_list[[1]], plot_list[[2]], plot_list[[3]]))
+row2 <- image_append(c(plot_list[[4]], plot_list[[5]], plot_list[[6]]))
+
+panel <- image_append(c(row1, row2), stack = TRUE)
+
+image_write(panel, path = "output/westside/for_paper/combined_panel_eisenhower.png", format = "png", density = "300")
+
+
+```
+
+```{r}
+
+highway <- streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))
+
+
+buffer_distance <- 0.1*5280  
+highway_buffer_tenthtmile <- st_buffer(highway, dist = buffer_distance)
+
+polygons_tenthmile_highway <- yearly_panel_west %>% 
+  filter(year == 1950) %>% 
+  dplyr::select(GRID_ID) %>% 
+  st_join(highway_buffer_tenthtmile, join = st_intersects, left = FALSE) %>% 
+  st_drop_geometry() %>%
+  distinct(GRID_ID)
+
+
+
+reg_data <- yearly_panel_west %>% 
+  filter(year >= 1940 & year <= 1964) %>% 
+  mutate(flag_tenthmile_hway = 
+           ifelse(GRID_ID %in% c(polygons_tenthmile_highway$GRID_ID), 1, 0)) %>% 
+  mutate(flag_cat = case_when(flag_tenthmile_hway == 1 ~ "0.1 Mile", 
+                              TRUE ~ "> 0.1 Mile")) %>% 
+  mutate(flag_constr = ifelse(year > 1949, 1, 0)) %>% 
+  mutate(hexagon = GRID_ID)
+
+p <- ggplot() + 
+  geom_sf(data = reg_data %>% filter(year == 1950),  
+          aes(fill = flag_cat), alpha = 0.2, linewidth = 1) + 
+  geom_sf(data = census_west_outline, fill = NA, linewidth = 1.5) +
+  geom_sf(data = streets %>% filter(str_detect(DEDICATED_, "EISENHOWER EXPY"))) +
+  theme_void() + 
+  scale_fill_grey()+
+  labs(fill= "Distance from Expressway") +
+  coord_sf(
+    xlim = c(-87.8, -87.6), 
+    ylim = c(41.8, 41.94))  
+
+ggsave(filename = "output/westside/for_paper/distance_from_eisenhower.png", plot = p, width = 10, height = 8, dpi = 300)
+
+```
+
+
+```{r}
+
+ev <- feglm(
+    homicides ~ i(year, flag_tenthmile_hway , ref=1949)   | GRID_ID + year 
+    , data=reg_data 
+    , family = "poisson"
+  )
+
+summary(ev)
+iplot(ev)
+
+
+reg_fe_eis_no_control <- feglm(homicides ~ flag_constr * flag_tenthmile_hway
+              | hexagon + year
+              , data = reg_data 
+              , family = "poisson"
+              )
+
+summary(reg_fe_eis_no_control)
+reg_fe_eis_all <- feglm(homicides ~ flag_constr * flag_tenthmile_hway
+                + share_white +  share_black + share_foreign + 
+                  share_unemployed + share_college_grad 
+                + has_housing + share_vacant_homes
+                 + log(total_pop)
+              | hexagon + year
+              , data = reg_data 
+              , family = "poisson"
+              )
+
+summary(reg_fe_eis_all)
+
+reg_fe_eis_all_5_year <- feglm(homicides ~ flag_constr * flag_tenthmile_hway
+                + share_white +  share_black + share_foreign + 
+                  share_unemployed + share_college_grad 
+                + has_housing + share_vacant_homes
+                 + log(total_pop)
+              | hexagon + year
+              , data = reg_data %>% filter(year >= 1945, year <= 1953)
+              , family = "poisson"
+              )
+
+summary(reg_fe_eis_all_5_year)
+
+modelsummary(list("Full Period, No Controls" = reg_fe_eis_no_control, 
+                  "Full Period, With Controls" = reg_fe_eis_all, 
+                  "10 Year Surrounding, With Controls" = reg_fe_eis_all_5_year)
+                  , stars = TRUE)
+```
+
+#Overcrowding and Age 
+
+
+```{r Data Set Up}
+
+census_west_homs <- homs_west %>% 
+  dplyr::select(year_decade, years) %>%
+  st_join(census_west , join = st_within) %>% 
+  st_drop_geometry() %>% 
+  filter(year == year_decade) %>% 
+  dplyr::select(-year_decade) %>% 
+  group_by(GISJOIN_1970, year) %>% 
+  mutate(homicides = n() / years) %>% 
+  ungroup() %>% 
+  distinct() %>% 
+  arrange(GISJOIN_1970, year) %>% 
+  dplyr::select(-years)
+
+
+census_rest <- anti_join(census_west %>% st_drop_geometry(), census_west_homs %>% distinct(GISJOIN_1970, year)) %>%
+  mutate(homicides = 0) 
+
+census_west_homs_full <- rbind(census_west_homs, census_rest) 
+  
+census_west_homs_geom <- census_west %>%
+  dplyr::select(GISJOIN_1970, year) %>% 
+  left_join(census_west_homs_full) %>% 
+  mutate(area = st_area(geometry)) %>% 
+  mutate(ellipsis_in_GRID_ID = lengths(st_intersects(., all_ellipses)) > 0) %>%
+  mutate(share_under_25 = ifelse(total_pop > 0 & total_pop > over_25, 1-(over_25/total_pop), 0)) %>%
+  mutate(young_people_per_area = ifelse(total_pop > over_25 & total_pop > 0, (total_pop - over_25)/area, 0), 
+         male_15_24 = (male_15_19+male_20_24),
+         all_15_24 = (male_15_19 + male_20_24 + female_15_19 + female_20_24),
+         male_15_24_per_area = ifelse((male_15_19 + male_20_24) > 0, 
+                                      ((male_15_19 + male_20_24))/area, 0), 
+         all_15_24_per_area = ifelse((male_15_19 + male_20_24 + female_15_19 + female_20_24) > 0, 
+                                      (male_15_19 + male_20_24 + female_15_19 + female_20_24)/area, 0),
+         female_15_24_per_area = ifelse((female_15_19 + female_20_24) > 0, 
+                                      (female_15_19 + female_20_24)/area, 0),
+         male_15_19_per_area = ifelse((male_15_19 ) > 0, 
+                                      ((male_15_19 ))/area, 0), 
+         female_15_19_per_area = ifelse((female_15_19 ) > 0, 
+                                      ((female_15_19 ))/area, 0), 
+         all_15_19_per_area = ifelse((male_15_19  + female_15_19 ) > 0, 
+                                      (male_15_19  + female_15_19)/area, 0),
+         male_to_female_ratio_15_24 = ifelse(female_15_24_per_area > 0 , male_15_19_per_area/female_15_24_per_area, 0),
+         male_to_female_ratio_15_19 = ifelse(male_15_19_per_area > 0 , male_15_19_per_area/female_15_19_per_area, 0),
+         male_share_15_24 = ifelse(all_15_24 > 0, male_15_24/all_15_24, 0),
+         share_white_black = ifelse(share_black > 0, share_white / share_black, 1),
+         share_white_black_25_75 = ifelse(share_white_black >= 0.25 & share_white_black <= 0.75, 1, 0), 
+         share_white_black_25_90 = ifelse(share_white_black >= 0.25 & share_white_black <= 0.9, 1, 0), 
+         share_white_black_25_150 = ifelse(share_white_black >= 0.250 & share_white_black <= 1.5, 1, 0), 
+         share_white_black_25_50 = ifelse(share_white_black >= 0.25 & share_white_black <= .5, 1, 0), 
+         homicide_per_area = ifelse(homicides > 0, homicides/area, 0)) %>% 
+  filter(year <= 1960) %>% 
+  arrange(year) %>% 
+  group_by(GISJOIN_1970) %>% 
+  mutate(change_share_white_black = share_white_black - lag(share_white_black))
+
+```
+change in share_white_black 
+
+```{r Panel Table}
+
+years  <-  c(1940, 1950, 1960)
+homicide_plots <- list()
+crowding_plots <- list()
+young_plots <- list() 
+
+for (i in 1:3) {
+
+ year <- years[i]
+
+  p1 <- ggplot() + 
+    geom_sf(data = census_west_homs_geom %>% filter(year == !!year), aes(fill = homicide_per_area)) + 
+    theme_void() + 
+    scale_fill_gradient( low = "black", high = "white", guide = guide_colorbar(barheight = 1)
+                         , limits = c(0, 0.00015),  breaks = c(0, 7.5e-05, 0.00015)) + 
+    labs(fill = "Homicides per  \nSquare Meter  ", title = year)+
+    theme(legend.position = "bottom",
+      plot.title.position = "plot",
+      plot.title = element_text(hjust = 0.5))
+ 
+  img <- image_graph(width = 1200, height = 800, res = 300)
+  print(p1)
+  dev.off()
+  homicide_plots[[i]] <- img
+  
+
+  p2 <- ggplot() + 
+    geom_sf(data = census_west_homs_geom %>% filter(year == !!year), aes(fill = share_over_1_ppr)) + 
+    theme_void() + 
+    scale_fill_gradient( low = "black", high = "white", guide = guide_colorbar(barheight = 1) , limits = c(0, 0.7)) + 
+    labs(fill = "Share of Housing With\nOver 1 Person per Room ", title = " ") +
+    theme(legend.position = "bottom",
+      plot.title.position = "plot",
+      plot.title = element_text(hjust = 0.5))
+
+  img <- image_graph(width = 1200, height = 800, res = 300)
+  print(p2)
+  dev.off()
+  crowding_plots[[i]] <- img
+  
+  p3 <- ggplot() + 
+    geom_sf(data = census_west_homs_geom %>% filter(year == !!year), aes(fill = male_15_24_per_area)) + 
+    theme_void() + 
+    scale_fill_gradient( low = "black", high = "white", guide = guide_colorbar(barheight = 1), limits = c(0, 0.005 )) + 
+    labs(fill = "Male Residents 15-24\nper Square Meter ", title = " ") +
+    theme(legend.position = "bottom",
+      plot.title.position = "plot",
+      plot.title = element_text(hjust = 0.5))
+
+  img <- image_graph(width = 1200, height = 800, res = 300)
+  print(p3)
+  dev.off()
+  young_plots[[i]] <- img
+
+}
+
+
+row1 <- image_append(c(homicide_plots[[1]], crowding_plots[[1]], young_plots[[1]]))
+row2 <- image_append(c(homicide_plots[[2]], crowding_plots[[2]], young_plots[[2]]))
+row3 <- image_append(c(homicide_plots[[3]], crowding_plots[[3]], young_plots[[3]]))
+
+panel <- image_append(c(row1, row2, row3), stack = TRUE)
+
+image_write(panel, path = "output/westside/for_paper/homicides_v_crowding_v_young_panel.png", format = "png", density = "300")
+
+
+
+
+
+```
+
+```{r Regression 15-24}
+
+
+reg1 <- feglm(homicides ~ male_15_24_per_area 
+                         + share_black + share_white 
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value + total_pop
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom) 
+summary(reg1)
+
+reg2 <- feglm(homicides ~ female_15_24_per_area
+ + share_black + share_white 
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value + total_pop
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom) 
+summary(reg2)
+
+reg2 <- feglm(homicides ~ female_15_24_per_area
+                         + share_black + share_white 
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value + total_pop
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom) 
+summary(reg2)
+
+
+reg3 <- feglm(homicides ~ all_15_24_per_area + male_to_female_ratio_15_24
+                         + share_black + share_white 
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value + total_pop
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom) 
+summary(reg3)
+
+modelsummary(list("# Males 15-24 per Sq. Meter" = reg1, 
+                  "# Females 15-24 per Sq. Meter" = reg2, 
+                  "# All 15-24 per Sq. Meter + Ratio" = reg3), 
+                  coef_map = c("male_15_24_per_area", "female_15_24_per_area", "all_15_24_per_area", "male_to_female_ratio_15_24"),
+                  stars = TRUE, 
+                  output = "output/westside/for_paper/reg_table_15_24.html")
+
+
+```
+
+Is it women that are dying? 
+
+```{r Black to White}
+
+
+reg1 <- feglm(homicides ~ share_white_black_25_75
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value + total_pop
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom)
+
+
+reg2 <- feglm(homicides ~ share_white_black_25_90
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value + total_pop
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom) 
+
+reg3 <- feglm(homicides ~  share_white_black_25_150
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value + total_pop
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom) 
+
+reg3 <- feglm(homicides ~  share_white_black_25_50
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value + total_pop
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom) 
+
+
+
+
+
+modelsummary(list("Ratio White-Black Between 25% and 75%" = reg1, 
+                  "Ratio White-Black Between 25% and 90%" = reg2, 
+                  "Ratio White-Black Between 25% and 150%" = reg3,
+                   "Ratio White-Black Between 25% and 50%" = reg4),
+                  coef_map = c("share_white_black_25_75", "share_white_black_25_90", "share_white_black_25_150",
+                               "share_white_black_25_50"),
+                  stars = TRUE, 
+                  output = "output/westside/for_paper/reg_table_ratio_white_black.html")
+
+```
+
+Confusing results - why, when we add change in share, does a higher share all of a sudden lead to higher homicides? Even though the change has barely any effect. 
+```{r 15-19}
+
+reg1 <- feglm(homicides ~ male_15_19_per_area
+                        + total_pop + share_black + share_white 
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value 
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom 
+           ) 
+summary(reg1)
+
+reg2 <- feglm(homicides ~ female_15_19_per_area
+                        + total_pop + share_black + share_white 
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value 
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom
+           ) 
+summary(reg2)
+
+
+reg3 <- feglm(homicides ~ all_15_19_per_area + male_to_female_ratio_15_19 
+                        + total_pop + share_black + share_white 
+                         + share_vacant_units + share_owner_occupied
+                         +  unemployment_rate + college_grads + median_value 
+              | GISJOIN_1970 + year
+           ,family = poisson(), data = census_west_homs_geom%>% filter(male_15_19 > 20)
+           ) 
+summary(reg3)
+
+modelsummary(list("# Males 15-19 per Sq. Meter" = reg1, 
+                  "# Females 15-19 per Sq. Meter" = reg2, 
+                  "# All 15-19 per Sq. Meter + Ratio" = reg3), 
+                  coef_map = c("male_15_19_per_area", "female_15_19_per_area", "all_15_19_per_area", "male_to_female_ratio_15_19"),
+                  stars = TRUE, 
+                  output = "output/westside/for_paper/reg_table_15_19.html")
+
+
+```
+
+
+# Data Investigations
+
+```{r Tracts} 
+
+
+census_40_tract <- st_read("data/raw/census/1940_census_tracts")
+census_40_tract <- st_transform(census_40_tract, crs = st_crs(homs))
+
+
+census_50_tract <- st_read("data/raw/census/1950_census_tracts")
+census_50_tract <- st_transform(census_50_tract, crs = st_crs(homs))
+
+census_60_tract <- st_read("data/raw/census/1960_census_tracts")
+census_60_tract <- st_transform(census_60_tract, crs = st_crs(homs))
+
+census_70_tract <- st_read("data/raw/census/1970_census_tracts")
+census_70_tract <- st_transform(census_70_tract, crs = st_crs(homs))
+
+census_40_tract  <- st_make_valid(census_40_tract)
+census_1940 <- st_filter(census_40_tract, westside)
+
+census_50_tract  <- st_make_valid(census_50_tract)
+census_1950 <- st_filter(census_50_tract, westside)
+
+census_60_tract  <- st_make_valid(census_60_tract)
+census_1960 <- st_filter(census_60_tract, westside)
+
+census_70_tract  <- st_make_valid(census_70_tract)
+census_1970 <- st_filter(census_70_tract, westside)
+
+leaflet() %>% 
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+    addPolygons(data = westside,  opacity = 0.5) %>% 
+    addPolygons(data = census_west %>% filter(year == 1940), opacity = 0, 
+                label= ~as.character(paste0(GISJOIN,"-", GISJOIN_1970))) %>% 
+    addControl(paste("Census Walk, 1940"), position = "topright") 
+
+leaflet() %>% 
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+    addPolygons(data = westside,  opacity = 0.5) %>% 
+    addPolygons(data = census_west %>% filter(year == 1950), opacity = 0, 
+                label= ~as.character(paste0(GISJOIN,"-", GISJOIN_1970)))%>% 
+    addControl(paste("Census Walk, 1950"), position = "topright") 
+
+leaflet() %>% 
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+    addPolygons(data = westside,  opacity = 0.5) %>% 
+    addPolygons(data = census_west %>% filter(year == 1960), opacity = 0, 
+                label= ~as.character(paste0(GISJOIN,"-", GISJOIN_1970)))%>% 
+    addControl(paste("Census Walk, 1960"), position = "topright") 
+
+leaflet() %>% 
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+    addPolygons(data = westside,  opacity = 0.5) %>% 
+    addPolygons(data = census_west %>% filter(year == 1970), opacity = 0, 
+                label= ~as.character(paste0(GISJOIN,"-", GISJOIN_1970)))%>% 
+    addControl(paste("Census Walk, 1970"), position = "topright") 
+
+leaflet() %>% 
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+    addPolygons(data = westside,  opacity = 0.5) %>% 
+    addPolygons(data = census_1940, opacity = 0, 
+                label= ~as.character(GISJOIN))%>% 
+    addControl(paste("Census Data, 1940"), position = "topright") 
+
+leaflet() %>% 
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+    addPolygons(data = westside,  opacity = 0.5) %>% 
+    addPolygons(data = census_1950, opacity = 0, 
+                label= ~as.character(GISJOIN))%>% 
+    addControl(paste("Census Data, 1950"), position = "topright") 
+
+leaflet() %>% 
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+    addPolygons(data = westside,  opacity = 0.5) %>% 
+    addPolygons(data = census_1960, opacity = 0, 
+                label= ~as.character(GISJOIN))%>% 
+    addControl(paste("Census Data, 1960"), position = "topright") 
+
+leaflet() %>% 
+    addProviderTiles(providers$Esri.WorldGrayCanvas) %>%
+    addPolygons(data = westside,  opacity = 0.5) %>% 
+    addPolygons(data = census_1970, opacity = 0, 
+                label= ~as.character(GISJOIN))%>% 
+    addControl(paste("Census Data, 1970"), position = "topright") 
+```
+
+
+
+```{r}
+feglm(ellipsis_in_GRID_ID  ~ share_black*share_over_1_ppr*share_under_25*share_foreign
+              | year
+           ,family = poisson(), data = census_west_homs_geom ,  vcov = ~ GISJOIN_1970
+           ) 
+
+
+```

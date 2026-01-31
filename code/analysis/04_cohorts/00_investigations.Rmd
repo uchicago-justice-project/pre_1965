@@ -1,0 +1,40 @@
+---
+title: "00_investigations"
+output: html_document
+---
+
+
+
+```{r Set Up, include = FALSE}
+rm(list = ls())
+source("header.R")
+library(geosphere)
+```
+
+```{r Read Data}
+
+df <- read_csv("data/raw/census/usa_00008.csv.gz")
+
+hex <- st_read("data/intermediate/homicide_hexagons/survivorship")%>% 
+  mutate(year = as.integer(year))
+
+
+US_tract_1920 <- st_read("data/raw/census/1920/US_tract_1920") %>% 
+  filter(NHGISCTY == "0310")
+
+US_tract_1920 <- st_transform(US_tract_1920, st_crs(hex)) 
+
+
+st_crs(US_tract_1920)
+
+```
+
+
+```{r}
+
+
+
+ggplot() + 
+  geom_sf(data = US_tract_1920, color = "black") 
+
+```

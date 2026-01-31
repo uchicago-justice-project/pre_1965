@@ -1,0 +1,56 @@
+---
+title: "07_density_investigations"
+output: html_document
+---
+
+```{r set up}
+rm(list = ls())
+source("header.R")
+
+census_walk <- st_read("data/mst/for_paper/census_walk_w_ws_flag.geojson") %>% 
+  filter(year <= 1970)
+
+
+```
+# What happened in 1950? 
+# Look at the density distribution over time 
+# Look at general population density 
+# Look at distribution 
+# Number of renters 
+# What is the measure of ppp 
+
+```{r}
+census_summary_wide <- census_walk %>% 
+  st_drop_geometry() %>% 
+  group_by(flag_west_side, year) %>% 
+  summarise(
+    across(
+      c(n_black_total,
+        n_pop_total,
+        n_renter_occ_total,
+        n_ppr_total, 
+        n_20_29_total, 
+        n_15_19_total, 
+        n_male_15_19_total,
+        n_ppr_share, 
+        n_pop_share,
+        n_black_share, 
+        n_20_29_share, 
+        n_15_19_share, 
+        n_male_15_19_share,
+        total_pop, 
+        n_renter_occ_share), 
+      list(avg = ~mean(.x, na.rm = TRUE), 
+           sum = ~sum(.x, na.rm = TRUE))
+  ) ) %>%
+  ungroup()%>% 
+  group_by(flag_west_side) %>%
+  pivot_wider(
+    names_from = flag_west_side,
+    values_from =   c(contains("avg"), contains("sum")),
+    names_glue = "{.value}_west_{flag_west_side}" 
+  ) 
+
+
+write_csv(census_summary_wide, "output/westside_paper/comparative_descr_summary.csv")
+```

@@ -1,0 +1,134 @@
+---
+title: "06_for_paper_invest"
+output: html_document
+---
+
+```{r Set Up, include = FALSE}
+
+rm(list = ls())
+source("header.R")
+library(lubridate)
+library(htmltools)
+library(shiny)
+library(rsconnect)
+library(leaflet)
+library(modelsummary)
+library(fixest)
+
+all_ellipses <- st_read("data/mst/all_ellipses.shp")
+census_west_homs_geom <- readRDS("output/westside_interactive_maps/census_west_homs_geom.rds") %>% 
+  filter(year <= 1970) %>% 
+  mutate(ellipsis_in_GISJOIN= lengths(st_intersects(., all_ellipses)) > 0) 
+
+census_west_outline <-census_west_homs_geom  %>%
+  st_union() %>%        # dissolve all tracts into one geometry
+  st_cast("POLYGON")
+
+
+```
+
+```{r}
+
+census_west_homs_geom <- census_west_homs_geom %>%
+  mutate(
+
+    black_pop = share_black * 1000,
+    black_pop = if_else(is.na(black_pop), 0, black_pop),
+    n_black_points = pmax(floor(black_pop), 0), 
+    
+    share_over_1_ppr
+  )
+
+tracts_with_points <- census_west_homs_geom %>%
+  filter(n_black_points > 0)
+
+pts_list <- map2(
+  tracts_with_points$geometry,
+  tracts_with_points$n_black_points,
+  ~ st_sample(.x, size = .y, type = "random")
+)
+
+# 2. Flatten list of sfc objects into ONE sfc
+pts_sfc <- do.call(c, pts_list)  # c() concatenates sfc objects
+
+# 3. Build an index to replicate attributes for each point
+idx <- rep(seq_len(nrow(tracts_with_points)),
+           times = tracts_with_points$n_black_points)
+
+# 4. Create the sf POINT object
+points_black_sf <- st_sf(
+  tracts_with_points %>% st_drop_geometry() %>% slice(idx),
+  geometry = pts_sfc
+)
+
+st_crs(points_black_sf) <- st_crs(census_west_homs_geom)
+
+# Set up the years to iterate through
+years <- c(1940, 1950, 1960, 1970)
+
+year <- years[2]
+
+# Create and save a map for each year
+for (year in years) {
+  # Filter data for the current year
+  df_year <- points_black_sf %>% filter(year == !!year)
+  
+  # Calculate standard deviation ellipse for the current year
+  sde_data <- std_dev_ellipse(df_year)
+  sde <- st_ellipse(geometry = sde_data, sx = sde_data$sx, sy = sde_data$sy, rotation = -sde_data$theta) 
+  
+  sde_polygon <- st_cast(sde, "POLYGON")
+
+  sde_sf <- st_sf(
+    geometry = sde_polygon  
+  ) %>% 
+    mutate(year = !!year)
+
+
+  map <- ggplot() +
+    # Add the transparent census layer
+    geom_sf(data =census_west_outline,  fill = NA, color = "black") +
+    
+    # Add the semi-transparent sde polygons
+    geom_sf(data = sde_sf, fill = "black", alpha = 0.2, color = "black") +
+    theme_void() +
+    labs(title = glue("  {year}") )+
+    theme(plot.title = element_text(size=24)) +
+    coord_sf(expand = TRUE) +
+    theme(plot.margin = margin(0, 0, 0, 0))
+  
+  # Save the map as a PNG image using mapshot
+  file_name <- paste0("output/westside/census_ellipses/map_images_1940_65/map_", year, ".png")
+  ggsave(filename = file_name, plot = map)
+  file_name <- paste0("output/westside/census_ellipses/map_images_1940_65/map_", year, ".shp")
+  st_write(sde_sf, dsn = file_name,append = FALSE)
+  # Print progress
+  cat("Created map for year", year, "\n")
+}
+
+# Create a GIF from the saved images
+# Read all PNG files in the directory
+image_files <- list.files("output/westside/map_images_1940_65", pattern = "*.png", full.names = TRUE)
+image_files <- sort(image_files)  # Ensure files are in order
+
+
+
+
+# Read images into a list
+images <- lapply(image_files, image_read)
+
+# Join images into an animation
+animation <- image_join(images)
+
+# Optimize the animation
+animation <- image_animate(animation, fps = 2)  # 2 frames per second
+
+# Save as GIF
+image_write(animation, "output/westside/homicides_yearly_1940_65.gif")
+
+```
+
+
+# Create ellipses for share black, over 1 ppr, under 25 (or 20-29 if we have it)
+# Think about whether to use share or absolute number or some other scaled measure 
+# Create plots showing  the ellipses for all measures + homicides 
