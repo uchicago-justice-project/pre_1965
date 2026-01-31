@@ -48,8 +48,8 @@ pts_df <- cbind(
 )
 
 ggplot() +
-  geom_sf(data = outline_m, fill = NA, color = "black", linewidth = 0.25) +
-  geom_sf(data = census_west_outline, fill = NA, color = "black") +
+  geom_sf(data = outline_m, fill = "white", color = "grey50", linewidth = 0.25) +
+  geom_sf(data = census_west_outline, fill = "white", color = "grey50") +
   stat_density_2d(
     data = pts_df,
     aes(x = X, y = Y, fill = after_stat(density)),
@@ -58,11 +58,13 @@ ggplot() +
     adjust = 1.2        # smoothing parameter; try 0.8–2.0
   ) +
   geom_sf(data = ellipses_homs %>% filter(year == !!year), color = "red", alpha = 0.2) +
-  scale_fill_viridis_c(trans = "sqrt", name = "Density") +
+  scale_fill_viridis_c(trans = "sqrt", name = "Density", option = "inferno", na.value = "white") +
   coord_sf(crs = st_crs(outline_m), expand = FALSE) +
   theme_void() +
   labs(title = as.character(year)) +
   theme(
     plot.title = element_text(size = 24),
-    legend.position = "right"
+    legend.position = "right",
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA)
   )

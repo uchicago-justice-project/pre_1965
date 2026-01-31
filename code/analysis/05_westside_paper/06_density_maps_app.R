@@ -145,7 +145,7 @@ server <- function(input, output, session) {
       
       # Base Layer: West Side Outline
       p <- ggplot() +
-        geom_sf(data = census_west_outline, fill = "grey98", color = "white", linewidth = 0.2)
+        geom_sf(data = census_west_outline, fill = "white", color = "grey50", linewidth = 0.2)
       
       # KDE Density Layer
       if (!is.null(df)) {
@@ -169,16 +169,20 @@ server <- function(input, output, session) {
       }
       
       
-      p + scale_fill_viridis_c(option = "magma", limits = d_limits, oob = squish) +
-        theme_void() + labs(title = y) + theme(legend.position = "none")  +
-        geom_sf(data = census_west_outline, color = "white", linewidth = 0.2)
+      p + scale_fill_viridis_c(option = "inferno", limits = d_limits, oob = squish, na.value = "white") +
+        theme_void() + labs(title = y) +
+        theme(legend.position = "none",
+              plot.background = element_rect(fill = "white", color = NA),
+              panel.background = element_rect(fill = "white", color = NA)) +
+        geom_sf(data = census_west_outline, fill = NA, color = "grey50", linewidth = 0.2)
       
     })
     
-    wrap_plots(plots, ncol = 2) + 
+    wrap_plots(plots, ncol = 2) +
       plot_layout(guides = "collect") +
       plot_annotation(title = names(POINT_VARS)[POINT_VARS == input$var],
-                      theme = theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5)))
+                      theme = theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+                                    plot.background = element_rect(fill = "white", color = NA)))
   })
   
   output$panel <- renderPlot({ panel_plot() }, res = 110)

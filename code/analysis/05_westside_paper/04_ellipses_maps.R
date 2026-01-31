@@ -37,7 +37,7 @@ plot_ellipses_map <- function(year,
   )
   
   p <- ggplot() +
-    geom_sf(data = outline_sf, fill = NA, color = "black") +
+    geom_sf(data = outline_sf, fill = "white", color = "grey50") +
     geom_sf(
       data = ellipses_long,
       aes(fill = layer, color = layer),
@@ -48,7 +48,9 @@ plot_ellipses_map <- function(year,
     theme(
       plot.title  = element_text(size = 24),
       plot.margin = margin(0, 0, 0, 0),
-      legend.position = "right"
+      legend.position = "right",
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
     ) +
     coord_sf(expand = TRUE)
   
