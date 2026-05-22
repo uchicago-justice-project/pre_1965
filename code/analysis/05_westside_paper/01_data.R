@@ -5,7 +5,7 @@ source("header.R")
 #Homicide data to 65 ------------------
 homs <- st_read("data/raw/homicides_1940-1965_geocoded_v3") %>% 
   mutate(year = as.integer(year), 
-         date_clean = as_date(date), 
+         date_clean = as_date(ifelse(date == "NaT", paste0(year, "-07-01"), date)), 
          category = paste0(tolower(cod), ": ", format(date_clean, "%m/%d"))) %>% 
   filter(!st_is_empty(geometry)) 
 
@@ -15,8 +15,8 @@ homs_clean <- homs %>%
 
 #Homicide data post 65 --------------
 
-  #for CRS
-  grid <- st_read("data/raw/Fishnet_InsideChicago_150m")
+#for CRS
+grid <- st_read("data/raw/Fishnet_InsideChicago_150m")
 
 post_65 <- read_csv("data/raw/IndividualHomicides_1965_2022.csv") %>% 
   filter(!is.na(X_MetCent) & !is.na(Y_MetCent))
@@ -26,10 +26,10 @@ post_65 <- st_transform(post_65, crs = st_crs(homs))
 post_65_clean <- post_65 %>% 
   dplyr::select(year)
 
-  ##combine ----------
+##combine ----------
 
 homs_all <- rbind(homs_clean, post_65_clean) %>% 
-  filter(year <= 1970)
+  filter(year < 1975)
 
 # Census --------------
 
@@ -40,19 +40,55 @@ census_walk <- st_transform(census_walk, st_crs(homs))
 census_walk_data  <- read.csv("data/mst/census_data_crosswalked_1970_tracts.csv") %>% 
   rename(GISJOIN_1970 = ID)
 
+geom_lookup <- census_walk %>% 
+  group_by(GISJOIN_1970) %>% 
+  mutate(n = n()) %>% 
+  filter(n < 7, year == 1960) %>% 
+  mutate(year = 1970) %>% 
+  dplyr::select(-n)
+
 census_walk <- census_walk %>% 
-  left_join(census_walk_data)
+  rbind(geom_lookup) %>%
+  left_join(census_walk_data) 
+census_walk %>% filter(is.na(total_pop)) %>% View()
+
 
 #Neighborhoods --------------------
 westside <- read_sf("data/intermediate/westside.geojson")
 westside <- st_transform(westside, st_crs(homs))
 
+#Projects ------------------------------
+cha_projects <- read_sf("data/raw/housing_projects/housing_v3") 
+cha_projects <- st_transform(cha_projects, st_crs(homs))
+
+
+#Streets ------------------------------------
+streets <- st_read("data/raw/streets")
+highway_cons <- read_csv("data/raw/highway_construction.csv")
+
+hways <- streets %>% 
+  filter(DEDICATED_ %in% c("EISENHOWER EXPY")) %>% 
+  st_union() %>% 
+  st_cast("LINESTRING")
+
+lines_sf <- st_sf(geometry = hways)
+lines_sf <- st_transform(lines_sf, st_crs(homs)) 
+
 
 #Create west side data --------------------
+cha_projects_west <- st_filter(cha_projects, westside)
+select_hways_west<- st_intersection(lines_sf, westside)
 census_west <- st_filter(census_walk, westside)
 
 homs_west <- st_filter(homs_all, census_west) %>% 
-  mutate(year_decade = round(year/10, 0)*10) %>% 
+  mutate(year_decade = floor((year + 5) / 10) * 10) %>%
+  group_by(year_decade) %>% 
+  mutate(years = n_distinct(year)) %>%
+  ungroup()
+
+homs_not_west <- homs_all %>% 
+  filter(lengths(st_intersects(., census_west)) == 0) %>% 
+  mutate(year_decade = floor((year + 5) / 10) * 10) %>%
   group_by(year_decade) %>% 
   mutate(years = n_distinct(year)) %>%
   ungroup()
@@ -106,7 +142,8 @@ census_west_homs_geom <- census_west %>%
     n_male_20_29_share = floor(pmax(ifelse(is.na((male_20_24 + male_25_29)/total_pop), 0, ((male_20_24 + male_25_29)/total_pop)*1000), 0)),
     n_15_24_share = floor(pmax(ifelse(is.na(male_15_19 + female_15_19 + male_20_24 + female_20_24), 0, 
                                       ((male_15_19 + female_15_19 + male_20_24 + female_20_24)/total_pop)*1000)))
-  )
+  ) %>% 
+  filter(year <= 1970)
 
 
 
@@ -139,11 +176,13 @@ census_walk <- census_walk %>%
     n_male_20_29_share = floor(pmax(ifelse(is.na((male_20_24 + male_25_29)/total_pop), 0, ((male_20_24 + male_25_29)/total_pop)*1000), 0)),
     n_15_24_share = floor(pmax(ifelse(is.na(male_15_19 + female_15_19 + male_20_24 + female_20_24), 0, 
                                       ((male_15_19 + female_15_19 + male_20_24 + female_20_24)/total_pop)*1000)))
-  )
+  )%>% 
+  filter(year <= 1970)
 
 st_write(census_west_homs_geom, "data/mst/for_paper/census_west_homs_geom.geojson", append = FALSE)
 st_write(census_west_outline, "data/mst/for_paper/census_west_outline.geojson", append = FALSE)
 st_write(homs_west, "data/mst/for_paper/homs_west.geojson", append = FALSE )
-
+st_write(homs_not_west, "data/mst/for_paper/homs_nonwest.geojson", append = FALSE )
 st_write(census_walk, "data/mst/for_paper/census_walk_w_ws_flag.geojson", append = FALSE )
-
+st_write(cha_projects_west, "data/mst/for_paper/projects.geojson", append = FALSE )
+st_write(select_hways_west, "data/mst/for_paper/select_hways.geojson", append = FALSE)
