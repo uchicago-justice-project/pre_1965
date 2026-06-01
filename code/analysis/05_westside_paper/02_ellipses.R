@@ -2,6 +2,9 @@
 rm(list = ls())
 source("header.R")
 
+#Calculates standard deviational ellipses for homicides and census variables
+#Census variable ellipses calculation blocked out since we are not using those anymore 
+
 # Read data -----------
 census_west_homs_geom <- st_read("data/mst/for_paper/census_west_homs_geom.geojson")
 census_west_outline <- st_read("data/mst/for_paper/census_west_outline.geojson")
@@ -159,7 +162,7 @@ for (year in years) {
     coord_sf(expand = TRUE) +
     theme(plot.margin = margin(0, 0, 0, 0))
   
-  # Save the map as a PNG image using mapshot
+  # Save the map as a PNG image
   file_name <- paste0("output/westside_paper/ellipses/map_images_1940_65/map_homs_", year, ".png")
   ggsave(filename = file_name, plot = map)
   file_name <- paste0("output/westside_paper/ellipses/map_images_1940_65/ellipse_homs_", year, ".shp")

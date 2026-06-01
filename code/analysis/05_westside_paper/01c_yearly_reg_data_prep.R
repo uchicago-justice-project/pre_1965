@@ -4,6 +4,7 @@ library(modelsummary)
 library(fixest)
 library(webshot2)
 
+#Regression data in 1b is by decade due to census data - this creates a yearly dataframe that can be used for regressions
 # Pull Data -----------------
 
 homs_west <- st_read("data/mst/for_paper/homs_west.geojson")

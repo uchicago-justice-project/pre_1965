@@ -4,6 +4,8 @@ library(modelsummary)
 library(fixest)
 library(webshot2)
 
+#Takes the data from 01 and creates regression data frame 
+
 # Pull Data -----------------
 
 census_walk <- sf::st_read("data/mst/for_paper/census_west_homs_geom.geojson")

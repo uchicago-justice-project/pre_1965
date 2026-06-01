@@ -1,6 +1,9 @@
 rm(list = ls())
 source("header.R")
 
+#Loads all raw data and processes data into intermediate or master files 
+#Data loaded here is how data was provided to me
+
 
 #Homicide data to 65 ------------------
 homs <- st_read("data/raw/homicides_1940-1965_geocoded_v3") %>% 
