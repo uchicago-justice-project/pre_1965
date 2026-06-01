@@ -1,4 +1,4 @@
-<<<<<<< Updated upstream
+
 rm(list = ls())
 
 library(modelsummary)
