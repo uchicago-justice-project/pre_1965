@@ -1,4 +1,4 @@
-<<<<<<< Updated upstream
+
 library(sf)
 library(dplyr)
 library(ggplot2)
