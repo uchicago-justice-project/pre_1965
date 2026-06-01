@@ -1,4 +1,3 @@
-<<<<<<< Updated upstream
 
 rm(list = ls())
 source("header.R")
