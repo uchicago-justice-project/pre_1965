@@ -2,6 +2,10 @@
 rm(list = ls())
 source("header.R")
 
+#Pull ellipses data per year and compiles them into one large dataframe per variable
+#Ellipses data function for census variables blocked out since no longer in use
+
+
 # Make ellipses data frames
 
 point_var <- "homs"
