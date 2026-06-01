@@ -3,6 +3,8 @@ source("header.R")
 library(modelsummary)
 library(fixest)
 
+# Event study graphs for Eisenhower construction and housing project construction
+
 census_walk <- st_read("data/mst/for_paper/reg_data.geojson")
 
 # ---- Change this line to switch buffer distance ----

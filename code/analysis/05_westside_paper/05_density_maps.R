@@ -5,6 +5,10 @@ library(glue)
 library(scales)
 library(patchwork)
 library(ggspatial)
+
+# Calculates and plots density maps for homicides and census variables
+# Census variables blocked out because no longer used 
+
 # --- Configuration ---
 CRS_M <- 26916 # UTM 16N (Meters)
 

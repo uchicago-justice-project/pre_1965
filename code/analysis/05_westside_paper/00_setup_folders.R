@@ -6,7 +6,9 @@ dirs <- c(
   "data/intermediate",
   "data/mst",
   "data/mst/for_paper",
-  "output/westside_paper/ellipses/map_images_1940_65"
+  "output/westside_paper/ellipses/map_images_1940_65",
+  "output/westside_paper/ellipses/density_maps",
+  "output/westside_paper/data_vis"
 )
 
 for (d in dirs) {
