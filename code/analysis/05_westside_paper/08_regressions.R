@@ -3,6 +3,8 @@ source("header.R")
 library(modelsummary)
 library(fixest)
 
+# Regressions
+
 census_walk <- st_read("data/mst/for_paper/reg_data.geojson") %>% 
   filter(!if_any(c(dis_idx, z_share_black, z_share_over_1_ppr, z_share_20_29, 
                    z_share_vacant, z_share_unemployed, z_share_college_grad, z_median_home_value, flag_twentiethmile_any_hp_open, 
@@ -83,6 +85,8 @@ write_csv(stats, "output/westside_paper/regressions/stats.csv")
 # write_csv(anti, "output/westside_paper/regressions/anti.csv")
 
 
+
+# Robustness check 
 reg7 <- feglm(homicides ~ dis_idx*z_share_black*z_share_over_1_ppr*z_share_20_29
               + flag_twentiethmile_any_hp_open + flag_constr:flag_tenthmile_hway
               

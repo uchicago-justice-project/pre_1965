@@ -4,6 +4,8 @@ rm(list = ls())
 library(modelsummary)
 library(fixest)
 
+# Test regressions runs for robustness
+
 
 
 reg_halfmile_no_controls <- feglm(homicides ~ flag_constr:flag_halfmile_hway
