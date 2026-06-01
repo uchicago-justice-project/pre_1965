@@ -3,6 +3,9 @@ source("header.R")
 library(ggspatial)
 library(prettymapr)
 library(ggrepel)
+
+# Data visualization plots 
+
 # Read data -----------
 census_west_homs_geom <- st_read("data/mst/for_paper/census_west_homs_geom.geojson")
 census_west_outline <- st_read("data/mst/for_paper/census_west_outline.geojson")

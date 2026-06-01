@@ -4,6 +4,9 @@ source("header.R")
 library(ggspatial)
 library(prettymapr)
 
+#Creates maps for ellipses with additional information like housing projects and highway construction 
+# Census variables blocked out since no longer in use
+
 # ellipses_n_black_share <- st_read(glue("data/mst/for_paper/n_black_share_ellipses_all_years.geojson"))
 # ellipses_n_ppr_share <- st_read(glue("data/mst/for_paper/n_ppr_share_ellipses_all_years.geojson"))
 # ellipses_n_20_29_share <- st_read(glue("data/mst/for_paper/n_20_29_share_ellipses_all_years.geojson"))

@@ -3,6 +3,8 @@ source("header.R")
 library(modelsummary)
 library(fixest)
 
+# same as 7a but yearly
+
 census_walk <- st_read("data/mst/for_paper/reg_data_yearly.geojson")
 
 # ---- Change this line to switch buffer distance ----
