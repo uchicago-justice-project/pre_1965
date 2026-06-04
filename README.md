@@ -33,6 +33,10 @@ Major Streets https://uchicago.app.box.com/folder/304858434772
 
 Black Migration based on UIC Maps: https://uchicago.app.box.com/folder/308084262823
 
+Redlining: https://uchicago.app.box.com/file/1800024558667
+
+For homcide_hexagons, landsales, racial_violence please see Robert Vargas or David Hackett
+
 
 # Folder Structure
 
