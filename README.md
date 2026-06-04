@@ -30,6 +30,7 @@ Major Streets https://uchicago.app.box.com/folder/304858434772
 
 
 # *Data for Other Analyses:*
+Other Analyses may at this point have outdated file paths or incomplete data. The analyses were investigatory and frequently rough drafts.
 
 Black Migration based on UIC Maps: https://uchicago.app.box.com/folder/308084262823
 
