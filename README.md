@@ -22,6 +22,10 @@ See data folder
 Streets: 
 Major Streets https://uchicago.app.box.com/folder/304858434772
 
+Data for Other Analyses:
+
+Black Migration based on UIC Maps: https://uchicago.app.box.com/folder/308084262823
+
 
 # pre_1965
 
