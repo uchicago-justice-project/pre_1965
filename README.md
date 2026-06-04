@@ -30,8 +30,13 @@ Major Streets https://uchicago.app.box.com/folder/304858434772
 
 
 # *Data for Other Analyses:*
+Other Analyses may at this point have outdated file paths or incomplete data. The analyses were investigatory and frequently rough drafts.
 
 Black Migration based on UIC Maps: https://uchicago.app.box.com/folder/308084262823
+
+Redlining: https://uchicago.app.box.com/file/1800024558667
+
+For homcide_hexagons, landsales, racial_violence please see Robert Vargas or David Hackett
 
 
 # Folder Structure
@@ -40,6 +45,7 @@ The WestSide Paper Analysis has a 00 folder to set up the folders required for t
 
 
 ├── README.md          <- The top-level README for developers using this project.
+├── header             <- Loads packages
 
 ├── data
 
