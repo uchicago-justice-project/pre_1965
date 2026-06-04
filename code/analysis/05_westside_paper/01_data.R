@@ -68,7 +68,6 @@ cha_projects <- st_transform(cha_projects, st_crs(homs))
 
 #Streets ------------------------------------
 streets <- st_read("data/raw/streets")
-highway_cons <- read_csv("data/raw/highway_construction.csv")
 
 hways <- streets %>% 
   filter(DEDICATED_ %in% c("EISENHOWER EXPY")) %>% 
