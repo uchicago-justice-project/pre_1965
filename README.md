@@ -1,3 +1,9 @@
+# *Westside Paper:*
+
+Analysis for Westside Paper can be found here: https://github.com/uchicago-justice-project/pre_1965/tree/main/code/analysis/05_westside_paper
+
+These files are a self-contained step by step process to produce the analyses in the paper. 
+
 Data for Westside Paper: 
 
 Homicides 1940-1965:
@@ -11,7 +17,7 @@ https://uchicago.app.box.com/folder/318525882006
 Homicides Post 1965:
 https://uchicago.app.box.com/file/1845519499098
 
-Chicago Census Tract Crosswalk: Ask David Hackett
+Chicago Census Tract Crosswalk: See data folder and for more information ask David Hackett
 
 Westside: 
 See data folder
@@ -23,7 +29,14 @@ Streets:
 Major Streets https://uchicago.app.box.com/folder/304858434772
 
 
-# pre_1965
+# *Data for Other Analyses:*
+
+Black Migration based on UIC Maps: https://uchicago.app.box.com/folder/308084262823
+
+
+# Folder Structure
+
+The WestSide Paper Analysis has a 00 folder to set up the folders required for the analysis
 
 
 ├── README.md          <- The top-level README for developers using this project.
