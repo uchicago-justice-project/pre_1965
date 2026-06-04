@@ -1,4 +1,4 @@
-*Data for Westside Paper:*
+# *Data for Westside Paper:*
 
 Homicides 1940-1965:
 https://uchicago.app.box.com/folder/318526334129
@@ -23,7 +23,7 @@ Streets:
 Major Streets https://uchicago.app.box.com/folder/304858434772
 
 
-*Data for Other Analyses:*
+# *Data for Other Analyses:*
 
 Black Migration based on UIC Maps: https://uchicago.app.box.com/folder/308084262823
 
