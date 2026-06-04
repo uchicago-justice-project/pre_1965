@@ -1,5 +1,10 @@
 # *Data for Westside Paper:*
 
+Analysis for Westside Paper can be found here: https://github.com/uchicago-justice-project/pre_1965/tree/main/code/analysis/05_westside_paper
+
+These files are a self-contained step by step process to produce the analyses in the paper. 
+
+
 Homicides 1940-1965:
 https://uchicago.app.box.com/folder/318526334129
 
