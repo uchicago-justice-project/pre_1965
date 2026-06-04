@@ -40,6 +40,7 @@ The WestSide Paper Analysis has a 00 folder to set up the folders required for t
 
 
 ├── README.md          <- The top-level README for developers using this project.
+├── header             <- Loads packages
 
 ├── data
 
