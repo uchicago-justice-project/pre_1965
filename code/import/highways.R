@@ -1,3 +1,5 @@
+# Note: I seem to have lost the "highway_construction.csv" file. This was a file that indicated the year a highway was built. 
+
 rm(list = ls())
 source("header.R")
 
