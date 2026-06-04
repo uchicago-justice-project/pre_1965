@@ -28,7 +28,9 @@ Major Streets https://uchicago.app.box.com/folder/304858434772
 Black Migration based on UIC Maps: https://uchicago.app.box.com/folder/308084262823
 
 
-# pre_1965
+# Folder Structure
+
+The WestSide Paper Analysis has a 00 folder to set up the folders required for the analysis
 
 
 ├── README.md          <- The top-level README for developers using this project.
