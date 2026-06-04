@@ -11,7 +11,7 @@ https://uchicago.app.box.com/folder/318525882006
 Homicides Post 1965:
 https://uchicago.app.box.com/file/1845519499098
 
-Chicago Census Tract Crosswalk: Ask David Hackett
+Chicago Census Tract Crosswalk: See data folder and for more information ask David Hackett
 
 Westside: 
 See data folder
